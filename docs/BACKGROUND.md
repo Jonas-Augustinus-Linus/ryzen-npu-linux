@@ -1,3 +1,5 @@
+**[🇬🇧 English](BACKGROUND.md) · [🇩🇪 Deutsch](BACKGROUND.de.md) · [🇫🇷 Français](BACKGROUND.fr.md) · [🇰🇷 한국어](BACKGROUND.ko.md) · [🇯🇵 日本語](BACKGROUND.ja.md)**
+
 # Background: XDNA1, XDNA2, and why Linux is hard for first-gen
 
 ## The chip

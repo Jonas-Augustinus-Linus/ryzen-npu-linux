@@ -1,3 +1,5 @@
+**[🇬🇧 English](GOTCHAS.md) · [🇩🇪 Deutsch](GOTCHAS.de.md) · [🇫🇷 Français](GOTCHAS.fr.md) · [🇰🇷 한국어](GOTCHAS.ko.md) · [🇯🇵 日本語](GOTCHAS.ja.md)**
+
 # Gotchas — what breaks, why, and the fix
 
 Every item below was hit and resolved on a real build (Ryzen 7840U / XDNA1,

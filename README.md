@@ -1,3 +1,5 @@
+**[🇬🇧 English](README.md) · [🇩🇪 Deutsch](README.de.md) · [🇫🇷 Français](README.fr.md) · [🇰🇷 한국어](README.ko.md) · [🇯🇵 日本語](README.ja.md)**
+
 # Running real compute on a Ryzen AI **XDNA1** NPU on **Linux**
 
 A reproducible, end-to-end recipe — with tools — for taking an AMD Ryzen AI

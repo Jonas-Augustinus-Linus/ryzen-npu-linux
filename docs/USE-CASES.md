@@ -1,3 +1,5 @@
+**[🇬🇧 English](USE-CASES.md) · [🇩🇪 Deutsch](USE-CASES.de.md) · [🇫🇷 Français](USE-CASES.fr.md) · [🇰🇷 한국어](USE-CASES.ko.md) · [🇯🇵 日本語](USE-CASES.ja.md)**
+
 # Where can you actually use an XDNA1 NPU on Linux?
 
 Be honest with yourself about the maturity level. What you get from
