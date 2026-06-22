@@ -1,5 +1,7 @@
 # Wake-word detector — dense layers on the XDNA1 NPU
 
+![wake-word selftest demo](../../docs/media/wake-word.gif)
+
 A runnable **template** for an always-on keyword spotter whose fully-connected
 layers execute **on the Ryzen AI XDNA1 NPU** under Linux. Wake-word / KWS is the
 single best agent-side fit for this NPU (tiny, runs forever, perf-per-watt is the

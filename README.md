@@ -23,6 +23,15 @@ A reproducible, end-to-end recipe — with tools — for taking an AMD Ryzen AI
 > it.** The one open path that *does* target XDNA1 is `iree-amd-aie` — built from
 > source. This repo is the verified, gotcha-by-gotcha map of that path.
 
+## 🎬 Demos
+
+| | |
+|:--:|:--:|
+| diagnose → matmul → benchmark → Python, **on the NPU** | NPU 2D-blur on three `videotestsrc` patterns → `/dev/video10` |
+| ![npu-runner demo](docs/media/npu-runner.gif) | ![npu-camera demo](docs/media/npu-camera.gif) |
+| wake-word KWS — 3 dense layers on the NPU (target fires, noise stays silent) | bf16 is the NPU's native strength — up to **220 GFLOP/s** |
+| ![wake-word demo](docs/media/wake-word.gif) | ![benchmark demo](docs/media/benchmark.gif) |
+
 ## ✅ What works (verified)
 
 Compiled and executed **on the NPU** (`--device=amdxdna`), correct results,
@@ -85,10 +94,6 @@ BENCH=1 ./scripts/run-matmul.sh bf16 # + benchmark
 | [`scripts/run-matmul.sh`](scripts/run-matmul.sh) | Compiles + runs an `i32`/`bf16` matmul on the NPU. The recipe. |
 
 ## 🔬 Examples & tools
-
-| `npu-runner` — diagnose → matmul → benchmark → Python, on the NPU | `npu-camera` — NPU 2D-blur on three `videotestsrc` patterns → `/dev/video10` |
-|:---:|:---:|
-| ![npu-runner demo](docs/media/npu-runner.gif) | ![npu-camera demo](docs/media/npu-camera.gif) |
 
 - [`tools/npu-runner/`](tools/npu-runner/) — **persistent NPU caller** (IREE C API + `libnpu.so`/ctypes): load a `.vmfb` once, invoke many times — **~3.7 ms vs ~41 ms** for per-call `iree-run-module`. The piece that makes always-on use deployable.
 - [`examples/matmul_i32.mlir`](examples/matmul_i32.mlir) · [`examples/matmul_bf16.mlir`](examples/matmul_bf16.mlir) — the minimal verified NPU matmuls.

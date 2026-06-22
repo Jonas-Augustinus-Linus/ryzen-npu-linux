@@ -21,6 +21,15 @@ AMD Ryzen AI **1세대(XDNA1 / "Phoenix")** NPU를 *드라이버에는 보이지
 > 그 위에서 모델을 실행해주지 않는다.** XDNA1을 *실제로* 타깃하는 유일하게 열린 경로는 `iree-amd-aie`이며,
 > 이는 소스에서 빌드해야 한다. 이 저장소는 그 경로를 검증하고 gotcha 하나하나까지 짚어낸 지도다.
 
+## 🎬 데모
+
+| | |
+|:--:|:--:|
+| diagnose → matmul → benchmark → Python, **NPU에서 실행** | 세 가지 `videotestsrc` 패턴에 NPU 2D-blur 적용 → `/dev/video10` |
+| ![npu-runner demo](docs/media/npu-runner.gif) | ![npu-camera demo](docs/media/npu-camera.gif) |
+| 웨이크워드 KWS — NPU에서 dense 레이어 3개 (타깃은 발화, 노이즈는 침묵 유지) | bf16은 NPU의 고유 강점 — 최대 **220 GFLOP/s** |
+| ![wake-word demo](docs/media/wake-word.gif) | ![benchmark demo](docs/media/benchmark.gif) |
+
 ## ✅ 동작하는 것 (검증됨)
 
 **NPU에서** 컴파일·실행되었고(`--device=amdxdna`), 결과가 정확하며, 재현 가능함:

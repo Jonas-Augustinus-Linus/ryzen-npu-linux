@@ -23,6 +23,15 @@ Une recette reproductible et de bout en bout — avec ses outils — pour faire 
 > La seule voie ouverte qui *cible* effectivement XDNA1 est `iree-amd-aie` — compilé depuis
 > les sources. Ce dépôt est la carte vérifiée, piège par piège, de cette voie.
 
+## 🎬 Démos
+
+| | |
+|:--:|:--:|
+| diagnose → matmul → benchmark → Python, **sur le NPU** | flou 2D NPU sur trois motifs `videotestsrc` → `/dev/video10` |
+| ![npu-runner demo](docs/media/npu-runner.gif) | ![npu-camera demo](docs/media/npu-camera.gif) |
+| KWS de détection de mot-clé — 3 couches denses sur le NPU (la cible se déclenche, le bruit reste silencieux) | bf16 est la force native du NPU — jusqu'à **220 GFLOP/s** |
+| ![wake-word demo](docs/media/wake-word.gif) | ![benchmark demo](docs/media/benchmark.gif) |
+
 ## ✅ Ce qui fonctionne (vérifié)
 
 Compilé et exécuté **sur le NPU** (`--device=amdxdna`), résultats corrects,

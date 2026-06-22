@@ -23,6 +23,15 @@ NPU der **ersten Generation (XDNA1 / „Phoenix")** von *treibersichtbar-aber-un
 > ausführen.** Der eine offene Weg, der *tatsächlich* auf XDNA1 abzielt, ist `iree-amd-aie` — aus dem
 > Quellcode gebaut. Dieses Repository ist die verifizierte, Stolperstein-für-Stolperstein-Karte dieses Weges.
 
+## 🎬 Demos
+
+| | |
+|:--:|:--:|
+| Diagnose → Matmul → Benchmark → Python, **auf der NPU** | NPU-2D-Weichzeichner auf drei `videotestsrc`-Mustern → `/dev/video10` |
+| ![npu-runner demo](docs/media/npu-runner.gif) | ![npu-camera demo](docs/media/npu-camera.gif) |
+| Weckwort-KWS — 3 dichte Schichten auf der NPU (das Ziel löst aus, Rauschen bleibt still) | bf16 ist die native Stärke der NPU — bis zu **220 GFLOP/s** |
+| ![wake-word demo](docs/media/wake-word.gif) | ![benchmark demo](docs/media/benchmark.gif) |
+
 ## ✅ Was funktioniert (verifiziert)
 
 Kompiliert und **auf der NPU** ausgeführt (`--device=amdxdna`), korrekte Ergebnisse,
