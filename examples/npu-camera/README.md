@@ -1,3 +1,5 @@
+**[🇬🇧 English](README.md) · [🇩🇪 Deutsch](README.de.md) · [🇫🇷 Français](README.fr.md) · [🇰🇷 한국어](README.ko.md) · [🇯🇵 日本語](README.ja.md)**
+
 # npu-camera — always-on NPU video filter → virtual camera
 
 Captures video, runs **every frame through the XDNA1 NPU**, and publishes the

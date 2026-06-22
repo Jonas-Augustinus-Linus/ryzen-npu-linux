@@ -1,3 +1,5 @@
+**[🇬🇧 English](README.md) · [🇩🇪 Deutsch](README.de.md) · [🇫🇷 Français](README.fr.md) · [🇰🇷 한국어](README.ko.md) · [🇯🇵 日本語](README.ja.md)**
+
 # npu-runner — persistent XDNA1 NPU caller (IREE runtime C API)
 
 Loads a `.vmfb` **once** and invokes the NPU many times in-process, instead of
