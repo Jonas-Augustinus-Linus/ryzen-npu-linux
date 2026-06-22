@@ -29,6 +29,25 @@ repeatable:
 Tested machine: **Lenovo ThinkPad T16 Gen2 · Ryzen 7 PRO 7840U (Phoenix, XDNA1)
 · Radeon 780M · Ubuntu 26.04 · kernel 7.0 · in-tree `amdxdna` · XRT 2.21 · NPU FW 1.5.5.391**.
 
+## 📊 Benchmarks
+
+End-to-end on the NPU via `iree-benchmark-module` (`--device=amdxdna`,
+`npu1_4col`, 10 reps, mean). Wall-clock includes host dispatch overhead, so the
+smallest matmuls are dispatch-bound; effective compute climbs with size.
+
+| dtype | shape (M×N×K) | time/iter | throughput | compute |
+|---|---|--:|--:|--:|
+| `i32` | 128×128×128 | 3.58 ms | 279 it/s | 1.2 GFLOP/s |
+| `i32` | 256×256×256 | 8.08 ms | 124 it/s | 4.2 GFLOP/s |
+| `i32` | 512×512×512 | 43.6 ms | 23 it/s | 6.2 GFLOP/s |
+| `bf16→f32` | 256×256×256 | 2.86 ms | 350 it/s | 11.7 GFLOP/s |
+| `bf16→f32` | 512×512×512 | 3.90 ms | 257 it/s | 68.8 GFLOP/s |
+| `bf16→f32` | 1024×1024×1024 | 9.76 ms | 102 it/s | 220 GFLOP/s |
+
+**bf16 is the NPU's native strength** — ~220 GFLOP/s at 1024³ and still scaling,
+while `i32` (not the AIE's native type) tops out near 6 GFLOP/s. Reproduce any row:
+`BENCH=1 ./scripts/run-matmul.sh bf16 1024 1024 1024`.
+
 ## 🚀 Quickstart
 
 ```bash

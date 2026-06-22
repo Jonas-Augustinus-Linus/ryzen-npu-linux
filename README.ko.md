@@ -26,6 +26,27 @@ AMD Ryzen AI **1세대(XDNA1 / "Phoenix")** NPU를 *드라이버에는 보이지
 테스트 머신: **Lenovo ThinkPad T16 Gen2 · Ryzen 7 PRO 7840U (Phoenix, XDNA1)
 · Radeon 780M · Ubuntu 26.04 · kernel 7.0 · 인트리 `amdxdna` · XRT 2.21 · NPU FW 1.5.5.391**.
 
+## 📊 벤치마크
+
+`iree-benchmark-module`로 NPU에서 측정한 엔드투엔드 결과(`--device=amdxdna`,
+`npu1_4col`, 10회 반복, 평균). 벽시계 시간(wall-clock)에는 호스트 디스패치 오버헤드가
+포함되어 있어, 가장 작은 matmul은 디스패치에 묶인다(dispatch-bound). 실효 연산량은
+크기가 커질수록 올라간다.
+
+| dtype | Shape (M×N×K) | 시간/iter | 처리량 | 연산량 |
+|---|---|--:|--:|--:|
+| `i32` | 128×128×128 | 3.58 ms | 279 it/s | 1.2 GFLOP/s |
+| `i32` | 256×256×256 | 8.08 ms | 124 it/s | 4.2 GFLOP/s |
+| `i32` | 512×512×512 | 43.6 ms | 23 it/s | 6.2 GFLOP/s |
+| `bf16→f32` | 256×256×256 | 2.86 ms | 350 it/s | 11.7 GFLOP/s |
+| `bf16→f32` | 512×512×512 | 3.90 ms | 257 it/s | 68.8 GFLOP/s |
+| `bf16→f32` | 1024×1024×1024 | 9.76 ms | 102 it/s | 220 GFLOP/s |
+
+**bf16은 NPU의 본래 강점이다** — 1024³에서 ~220 GFLOP/s이며 여전히 스케일링 중인 반면,
+(AIE의 네이티브 타입이 아닌) `i32`는 6 GFLOP/s 근처에서 한계에 부딪힌다. 어떤 행이든 재현하려면:
+`BENCH=1 ./scripts/run-matmul.sh bf16 1024 1024 1024`.
+
+
 ## 🚀 Quickstart
 
 ```bash

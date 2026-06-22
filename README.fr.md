@@ -29,6 +29,28 @@ reproductible :
 Machine testée : **Lenovo ThinkPad T16 Gen2 · Ryzen 7 PRO 7840U (Phoenix, XDNA1)
 · Radeon 780M · Ubuntu 26.04 · noyau 7.0 · `amdxdna` intégré · XRT 2.21 · NPU FW 1.5.5.391**.
 
+## 📊 Tests de performance
+
+De bout en bout sur le NPU via `iree-benchmark-module` (`--device=amdxdna`,
+`npu1_4col`, 10 répétitions, moyenne). Le temps réel inclut le surcoût de
+répartition côté hôte, si bien que les plus petits matmuls sont limités par la
+répartition ; le calcul effectif augmente avec la taille.
+
+| dtype | forme (M×N×K) | temps/itér | débit | calcul |
+|---|---|--:|--:|--:|
+| `i32` | 128×128×128 | 3.58 ms | 279 it/s | 1.2 GFLOP/s |
+| `i32` | 256×256×256 | 8.08 ms | 124 it/s | 4.2 GFLOP/s |
+| `i32` | 512×512×512 | 43.6 ms | 23 it/s | 6.2 GFLOP/s |
+| `bf16→f32` | 256×256×256 | 2.86 ms | 350 it/s | 11.7 GFLOP/s |
+| `bf16→f32` | 512×512×512 | 3.90 ms | 257 it/s | 68.8 GFLOP/s |
+| `bf16→f32` | 1024×1024×1024 | 9.76 ms | 102 it/s | 220 GFLOP/s |
+
+**Le bf16 est la force native du NPU** — ~220 GFLOP/s à 1024³ et continue de
+monter en charge, tandis que `i32` (qui n'est pas le type natif de l'AIE)
+plafonne autour de 6 GFLOP/s. Pour reproduire n'importe quelle ligne :
+`BENCH=1 ./scripts/run-matmul.sh bf16 1024 1024 1024`.
+
+
 ## 🚀 Démarrage rapide
 
 ```bash
