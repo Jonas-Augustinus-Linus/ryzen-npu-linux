@@ -261,6 +261,18 @@ iree-run-module --device=amdxdna --module=model.vmfb \
 - **Apprenants :** mutez [`run-matmul.sh`](../scripts/run-matmul.sh), benchmarkez
   bf16 vs i32, puis écrivez votre propre kernel conv2d ; passez ensuite à un minuscule graphe MLP.
 
+## 🔇 Mesuré : le NPU perd face au CPU pour l'audio
+
+Nous l'avons mesuré sur un 7840U. Une **trame entière de débruiteur CPU (8 layers) = 0.063 ms**,
+alors qu'un **unique dispatch NPU = 3.8 ms** — **~480× plus lent**, et un vrai débruiteur
+nécessite de nombreux dispatches/trame (≫ le budget temps réel de 10 ms). Les trames audio sont
+minuscules, donc la latence est **limitée par la surcharge de dispatch** et l'avantage de débit du NPU
+ne s'applique jamais ; RNNoise (GRU) n'a aucun abaissement NPU du tout. **Utilisez le CPU** pour la
+suppression de bruit en temps réel — p. ex. RNNoise via un micro virtuel PipeWire `module-filter-chain`
+(`librnnoise_ladspa.so`, label `noise_suppressor_mono`, exposé comme `Audio/Source` via
+`playback.props`). Gardez le NPU pour la vision/matmul ; voilà *pourquoi* les lignes audio ci-dessus
+restent sur le CPU.
+
 ## Liste honnête « pas la peine de s'y mettre sur XDNA1+Linux pour l'instant »
 
 - **Servir un LLM / Whisper / Stable Diffusion sur le NPU.** Utilisez l'iGPU, ou

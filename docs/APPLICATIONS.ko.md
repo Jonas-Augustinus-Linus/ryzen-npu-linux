@@ -255,6 +255,18 @@ iree-run-module --device=amdxdna --module=model.vmfb \
 - **학습자:** [`run-matmul.sh`](../scripts/run-matmul.sh)를 변형하고, bf16 대
   i32를 벤치마크한 뒤, 자신만의 conv2d 커널을 작성하라; 작은 MLP 그래프로 졸업하라.
 
+## 🔇 측정 결과: 오디오에서는 NPU가 CPU에 진다
+
+7840U에서 직접 측정했다. **CPU 디노이저 프레임 전체(8 레이어) = 0.063 ms**인 반면,
+**NPU 디스패치 한 번 = 3.8 ms** — **~480× 느리다**. 그리고 실제 디노이저는
+프레임당 여러 디스패치가 필요하다(10 ms 실시간 예산을 ≫ 넘는다). 오디오 프레임은
+아주 작아서 지연이 **디스패치 오버헤드 바운드**이며, NPU의 처리량 우위는 결코
+발휘되지 않는다; RNNoise(GRU)는 NPU 로어링이 아예 없다. 실시간 노이즈 억제에는
+**CPU를 써라** — 예를 들어 PipeWire `module-filter-chain` 가상 마이크를 통한
+RNNoise(`librnnoise_ladspa.so`, 레이블 `noise_suppressor_mono`, `playback.props`로
+`Audio/Source`로 노출). NPU는 비전/matmul용으로 남겨 두라; 이것이 위의 오디오 행들이
+CPU에 머무르는 *이유*다.
+
 ## 솔직한 "XDNA1+Linux에선 아직 신경 쓰지 마라" 목록
 
 - **NPU에서 어떤 LLM / Whisper / Stable Diffusion이든 서빙.** iGPU, 또는

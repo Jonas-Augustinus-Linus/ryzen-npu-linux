@@ -261,6 +261,18 @@ iree-run-module --device=amdxdna --module=model.vmfb \
 - **Lernende:** Mutiere [`run-matmul.sh`](../scripts/run-matmul.sh), benchmarke
   bf16 vs. i32, verfasse dann deinen eigenen conv2d-Kernel; steige auf zu einem winzigen MLP-Graphen.
 
+## 🔇 Gemessen: Die NPU verliert gegen die CPU bei Audio
+
+Wir haben es auf einem 7840U gemessen. Ein **ganzer CPU-Denoiser-Frame (8 Schichten) = 0.063 ms**,
+während ein **einzelner NPU-Dispatch = 3.8 ms** beträgt — **~480× langsamer**, und ein echter Denoiser
+braucht viele Dispatches/Frame (≫ das 10 ms-Echtzeit-Budget). Audio-Frames sind winzig,
+daher ist die Latenz **dispatch-overhead-gebunden** und der Durchsatzvorteil der NPU greift
+nie; RNNoise (GRU) hat überhaupt kein NPU-Lowering. **Nutze die CPU** für Echtzeit-
+Rauschunterdrückung — z. B. RNNoise über ein virtuelles Mikrofon mit PipeWire-`module-filter-chain`
+(`librnnoise_ladspa.so`, Label `noise_suppressor_mono`, als
+`Audio/Source` bereitgestellt via `playback.props`). Behalte die NPU für Vision/matmul; das ist *warum*
+die Audio-Zeilen oben auf der CPU bleiben.
+
 ## Ehrliche „lohnt sich auf XDNA1+Linux noch nicht"-Liste
 
 - **Irgendein LLM / Whisper / Stable Diffusion auf der NPU servieren.** Nutze die iGPU, oder

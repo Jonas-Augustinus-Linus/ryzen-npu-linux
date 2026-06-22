@@ -254,6 +254,18 @@ iree-run-module --device=amdxdna --module=model.vmfb \
 - **学習者:** [`run-matmul.sh`](../scripts/run-matmul.sh) を改変し、bf16 vs i32 を
   ベンチマークし、それから自前の conv2d カーネルを書く。極小の MLP グラフへと進む。
 
+## 🔇 実測: 音声では NPU は CPU に負ける
+
+7840U で実測した。**CPU デノイザの 1 フレーム全体 (8 layers) = 0.063 ms** に対し、
+**NPU の 1 ディスパッチ = 3.8 ms** — **~480× も遅く**、現実のデノイザは 1 フレームあたり
+多数のディスパッチを必要とする (10 ms のリアルタイムバジェットを ≫ 超過する)。音声フレームは
+極小なので、レイテンシは **ディスパッチオーバーヘッド律速** となり、NPU のスループットの優位は
+一切効かない。RNNoise (GRU) には NPU lowering がそもそも存在しない。リアルタイムの
+ノイズ抑制には **CPU を使う** こと — 例えば PipeWire の `module-filter-chain` 仮想マイク
+経由の RNNoise (`librnnoise_ladspa.so`、ラベル `noise_suppressor_mono`、`playback.props`
+で `Audio/Source` として公開) など。NPU はビジョン / matmul 用に取っておく。これが、
+上記の音声の行が CPU に留まっている *理由* である。
+
 ## 正直な「XDNA1+Linux ではまだ手を出すな」リスト
 
 - **NPU 上でのあらゆる LLM / Whisper / Stable Diffusion のサービング。** iGPU、または
