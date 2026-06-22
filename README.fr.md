@@ -100,6 +100,8 @@ Tous les détails dans **[docs/GOTCHAS.fr.md](docs/GOTCHAS.fr.md)**. La liste co
 
 ## 🎯 Où pouvez-vous réellement utiliser cela ?
 
+Guide complet public par public (jeux · agents IA · applications locales) avec notes de faisabilité → [docs/APPLICATIONS.fr.md](docs/APPLICATIONS.fr.md).
+
 Voir **[docs/USE-CASES.fr.md](docs/USE-CASES.fr.md)**. Honnêtement : c'est **de niveau noyau (kernel-level)**
 (briques de base matmul/conv), pas du serving de modèles clés en main. Idéal pour apprendre la programmation
 NPU, faire du benchmarking, construire/décharger des primitives d'inférence basse consommation spécifiques,

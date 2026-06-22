@@ -96,6 +96,8 @@ BENCH=1 ./scripts/run-matmul.sh bf16 # + benchmark
 
 ## 🎯 실제로 어디에 쓸 수 있나?
 
+대상별 전체 가이드(게임 · AI 에이전트 · 로컬 앱)와 실현성 등급 → [docs/APPLICATIONS.ko.md](docs/APPLICATIONS.ko.md).
+
 **[docs/USE-CASES.ko.md](docs/USE-CASES.ko.md)**를 보라. 솔직히 말하면, 이것은 턴키 모델 서빙이 아니라
 **커널 레벨**(matmul/conv 빌딩 블록)이다. NPU 프로그래밍 학습, 벤치마킹, 특정 저전력 추론
 프리미티브를 만들고/오프로딩하는 것, 그리고 열린 XDNA1-on-Linux 노력에 기여하는 데에는 좋다.

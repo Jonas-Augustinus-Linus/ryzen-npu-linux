@@ -97,6 +97,8 @@ Vollständige Details in **[docs/GOTCHAS.de.md](docs/GOTCHAS.de.md)**. Die Kurzl
 
 ## 🎯 Wo kann man das tatsächlich einsetzen?
 
+Vollständiger Leitfaden Zielgruppe für Zielgruppe (Spiele · KI-Agenten · lokale Apps) mit Machbarkeitsbewertungen → [docs/APPLICATIONS.de.md](docs/APPLICATIONS.de.md).
+
 Siehe **[docs/USE-CASES.de.md](docs/USE-CASES.de.md)**. Ehrlich gesagt: Das ist **Kernel-Ebene**
 (Matmul-/Conv-Bausteine), kein schlüsselfertiges Model-Serving. Gut zum Erlernen von NPU-
 Programmierung, zum Benchmarking, zum Bauen/Auslagern spezifischer stromsparender Inferenz-

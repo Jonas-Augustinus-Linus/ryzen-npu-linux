@@ -97,7 +97,9 @@ Full detail in **[docs/GOTCHAS.md](docs/GOTCHAS.md)**. The short list:
 
 ## 🎯 Where can you actually use this?
 
-See **[docs/USE-CASES.md](docs/USE-CASES.md)**. Honestly: this is **kernel-level**
+**Full audience-by-audience guide (games · AI agents · local apps) with feasibility ratings → [docs/APPLICATIONS.md](docs/APPLICATIONS.md).**
+
+Quick version — **[docs/USE-CASES.md](docs/USE-CASES.md)**. Honestly: this is **kernel-level**
 (matmul/conv building blocks), not turnkey model serving. Good for learning NPU
 programming, benchmarking, building/offloading specific low-power inference
 primitives, and contributing to the open XDNA1-on-Linux effort. It will **not**
