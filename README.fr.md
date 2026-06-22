@@ -113,6 +113,40 @@ un runtime LLM/Whisper/ONNX prêt à l'emploi sur XDNA1 — ça, c'est le territ
 Voir **[docs/BACKGROUND.fr.md](docs/BACKGROUND.fr.md)** pour XDNA1 vs XDNA2, pourquoi Linux est
 difficile pour la première génération, et comment le HAL `amdxdna` communique avec `/dev/accel0`.
 
+## 🧭 Où se situe ce projet (et ce qu'il n'est *pas*)
+
+**Ce n'est pas le premier projet NPU-sous-Linux, et il n'invente aucune partie de la pile** —
+le pilote, le compilateur et le runtime lui préexistent tous et font le gros du travail :
+
+| Couche | Travaux antérieurs sur lesquels nous bâtissons / à côté desquels nous nous situons |
+|---|---|
+| Pilote noyau | [`amd/xdna-driver`](https://github.com/amd/xdna-driver) — `amdxdna`, dans la branche principale depuis Linux 6.14, énumère XDNA1 en tant que `/dev/accel/accel0` |
+| Compilateur / runtime | [`nod-ai/iree-amd-aie`](https://github.com/nod-ai/iree-amd-aie), [`Xilinx/mlir-aie`](https://github.com/Xilinx/mlir-aie) (IRON), [`Xilinx/llvm-aie`](https://github.com/Xilinx/llvm-aie) (Peano), [`amd/Triton-XDNA`](https://github.com/amd/Triton-XDNA) — SDK/frameworks qui compilent pour `npu1` |
+| Calcul XDNA1 + Linux antérieur | un article de recherche ([arXiv 2504.03083](https://arxiv.org/abs/2504.03083) — GPT-2 sur un Phoenix 7940HS via IRON), des tutoriels uniquement sur les primitives, le [récapitulatif XDNA du wiki Gentoo](https://wiki.gentoo.org/wiki/User:Lockal/AMDXDNA) |
+| LLM NPU clés en main sous Linux | FastFlowLM · Lemonade 10.x · AMD Ryzen AI SW — **tous XDNA2 uniquement ; ils excluent explicitement XDNA1** |
+
+Ainsi, « premier NPU sous Linux », « premier compilateur » ou « premier à faire tourner XDNA1 » seraient
+tous des affirmations exagérées — et nous ne les faisons pas.
+
+**Ce que ce dépôt *est* :** pour autant que la recherche publique (2026-06) puisse le constater, la première
+— et la seule — **recette + trousse à outils empaquetée, reproductible et de bout en bout** qui exécute
+*n'importe quel calcul réel arbitraire* (matmul i32/bf16, conv) sur le **NPU XDNA1 de première génération
+(Phoenix, p. ex. 7840U) sous Linux** — la combinaison matériel/OS exacte que toute pile de fournisseur
+clés en main laisse orpheline. Les travaux antérieurs sont soit un **SDK/framework** en amont
+(vous naviguez vous-même parmi les pièges de la compilation depuis les sources), soit une application
+**XDNA2 uniquement**, soit un **article de recherche** (pas de dépôt prêt à l'emploi en un clic), soit un
+chemin de calcul **Windows uniquement**. La particularité réside dans le *paquet* : les scripts
+diagnostiquer→activer→compiler→exécuter, la **carte des pièges** de la compilation depuis les sources,
+l'**exécuteur persistant C-API/ctypes** (~11× plus rapide que `iree-run-module` appel par appel), les
+**exemples d'application** (mot de réveil, démon de caméra NPU), le **guide d'applications avec notes de
+faisabilité honnêtes** (y compris le constat mesuré « le NPU perd contre le CPU pour l'audio »), et une
+documentation en 5 langues.
+
+> **Mise en garde honnête :** ce positionnement provient d'une recherche publique de README et d'extraits
+> (aucun dépôt externe n'a été cloné/vérifié). Nous **ne pouvons pas** voir les dépôts privés, le travail
+> en entreprise, ni la longue traîne des scripts ponctuels — « nous n'avons trouvé aucun pair direct »
+> signifie exactement cela, et non « il n'en existe aucun ».
+
 ## ⚖️ Avertissement
 
 Notes communautaires, pas un produit AMD/Xilinx. `iree-amd-aie` est en phase précoce et

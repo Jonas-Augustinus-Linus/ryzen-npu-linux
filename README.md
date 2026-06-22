@@ -121,6 +121,39 @@ give you a drop-in LLM/Whisper/ONNX runtime on XDNA1 — that's XDNA2 / Windows 
 See **[docs/BACKGROUND.md](docs/BACKGROUND.md)** for XDNA1 vs XDNA2, why Linux is
 hard for first-gen, and how the `amdxdna` HAL talks to `/dev/accel0`.
 
+## 🧭 Where this sits (and what it is *not*)
+
+**This is not the first NPU-on-Linux project, and it invents none of the stack** —
+the driver, compiler, and runtime all predate it and do the heavy lifting:
+
+| Layer | Prior art we build on / sit next to |
+|---|---|
+| Kernel driver | [`amd/xdna-driver`](https://github.com/amd/xdna-driver) — `amdxdna`, mainline since Linux 6.14, enumerates XDNA1 as `/dev/accel/accel0` |
+| Compiler / runtime | [`nod-ai/iree-amd-aie`](https://github.com/nod-ai/iree-amd-aie), [`Xilinx/mlir-aie`](https://github.com/Xilinx/mlir-aie) (IRON), [`Xilinx/llvm-aie`](https://github.com/Xilinx/llvm-aie) (Peano), [`amd/Triton-XDNA`](https://github.com/amd/Triton-XDNA) — SDKs/frameworks that compile for `npu1` |
+| Prior XDNA1 + Linux compute | a research paper ([arXiv 2504.03083](https://arxiv.org/abs/2504.03083) — GPT-2 on a Phoenix 7940HS via IRON), primitive-only tutorials, the [Gentoo wiki XDNA writeup](https://wiki.gentoo.org/wiki/User:Lockal/AMDXDNA) |
+| Turnkey NPU LLM on Linux | FastFlowLM · Lemonade 10.x · AMD Ryzen AI SW — **all XDNA2-only; they explicitly exclude XDNA1** |
+
+So "first NPU on Linux", "first compiler", or "first to run XDNA1" would all be
+overclaims — and we don't make them.
+
+**What this repo *is*:** as far as public searching (2026-06) can find, the first
+— and only — **packaged, reproducible, end-to-end recipe + toolkit** that runs
+*arbitrary real compute* (i32/bf16 matmul, conv) on the **first-gen XDNA1
+(Phoenix, e.g. 7840U) NPU on Linux** — the exact hardware/OS combo every turnkey
+vendor stack leaves orphaned. The prior art is either an upstream **SDK/framework**
+(you navigate the from-source gotchas yourself), an **XDNA2-only** app, a
+**research paper** (no click-to-run repo), or a **Windows-only** compute path. The
+distinctive part is the *bundle*: diagnose→enable→build→run scripts, the from-source
+**gotcha map**, the **persistent C-API/ctypes runner** (~11× faster than per-call
+`iree-run-module`), the **app examples** (wake-word, NPU camera daemon), the
+**honest feasibility-rated applications guide** (incl. the measured "NPU loses to
+CPU for audio"), and 5-language docs.
+
+> **Honest caveat:** this positioning is from public search of READMEs and snippets
+> (no external repo was cloned/verified). We **cannot** see private repos, corporate
+> work, or the long tail of one-off scripts — "we found no direct peer" means
+> exactly that, not "none exists."
+
 ## ⚖️ Disclaimer
 
 Community notes, not an AMD/Xilinx product. `iree-amd-aie` is early-phase and

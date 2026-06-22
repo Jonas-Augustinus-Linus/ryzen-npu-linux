@@ -110,6 +110,39 @@ einsatzfertige LLM-/Whisper-/ONNX-Laufzeitumgebung auf XDNA1 liefern — das ist
 Siehe **[docs/BACKGROUND.de.md](docs/BACKGROUND.de.md)** für XDNA1 vs. XDNA2, warum Linux für die
 erste Generation schwierig ist und wie die `amdxdna`-HAL mit `/dev/accel0` kommuniziert.
 
+## 🧭 Wo das einzuordnen ist (und was es *nicht* ist)
+
+**Dies ist nicht das erste NPU-auf-Linux-Projekt, und es erfindet keinen Teil des Stacks** —
+Treiber, Compiler und Laufzeitumgebung gehen ihm allesamt voraus und leisten die eigentliche Arbeit:
+
+| Schicht | Vorarbeit, auf der wir aufbauen / neben der wir stehen |
+|---|---|
+| Kernel-Treiber | [`amd/xdna-driver`](https://github.com/amd/xdna-driver) — `amdxdna`, seit Linux 6.14 im Mainline, enumeriert XDNA1 als `/dev/accel/accel0` |
+| Compiler / Laufzeitumgebung | [`nod-ai/iree-amd-aie`](https://github.com/nod-ai/iree-amd-aie), [`Xilinx/mlir-aie`](https://github.com/Xilinx/mlir-aie) (IRON), [`Xilinx/llvm-aie`](https://github.com/Xilinx/llvm-aie) (Peano), [`amd/Triton-XDNA`](https://github.com/amd/Triton-XDNA) — SDKs/Frameworks, die für `npu1` kompilieren |
+| Frühere XDNA1- + Linux-Berechnungen | ein Forschungspapier ([arXiv 2504.03083](https://arxiv.org/abs/2504.03083) — GPT-2 auf einem Phoenix 7940HS via IRON), reine Primitive-Tutorials, der [Gentoo-Wiki-XDNA-Beitrag](https://wiki.gentoo.org/wiki/User:Lockal/AMDXDNA) |
+| Schlüsselfertiges NPU-LLM unter Linux | FastFlowLM · Lemonade 10.x · AMD Ryzen AI SW — **alle nur XDNA2; sie schließen XDNA1 ausdrücklich aus** |
+
+„Erste NPU unter Linux", „erster Compiler" oder „erster, der XDNA1 ausführt" wären also
+allesamt übertriebene Behauptungen — und die stellen wir nicht auf.
+
+**Was dieses Repository *ist*:** soweit eine öffentliche Suche (2026-06) reicht, das erste
+— und einzige — **paketierte, reproduzierbare, durchgängige Rezept + Werkzeugset**, das
+*beliebige echte Berechnungen* (i32/bf16-Matmul, Conv) auf der **XDNA1-NPU der ersten
+Generation (Phoenix, z. B. 7840U) unter Linux** ausführt — genau die Hardware-/OS-Kombination,
+die jeder schlüsselfertige Anbieter-Stack verwaist zurücklässt. Die Vorarbeit ist entweder ein
+vorgelagertes **SDK/Framework** (die From-Source-Stolpersteine umschiffst du selbst), eine
+**nur-XDNA2**-App, ein **Forschungspapier** (kein Klick-und-los-Repository) oder ein
+**nur-Windows**-Rechenpfad. Das Unterscheidende ist das *Bündel*: Diagnose→Aktivierung→Build→Lauf-Skripte,
+die From-Source-**Stolperstein-Karte**, der **persistente C-API-/ctypes-Runner**
+(~11× schneller als `iree-run-module` pro Aufruf), die **App-Beispiele** (Wake-Word, NPU-Kamera-Daemon),
+der **ehrlich machbarkeitsbewertete Anwendungsleitfaden** (inkl. des gemessenen „NPU verliert
+bei Audio gegen die CPU") und Dokumentation in 5 Sprachen.
+
+> **Ehrlicher Vorbehalt:** Diese Einordnung beruht auf einer öffentlichen Suche in READMEs und
+> Schnipseln (kein externes Repository wurde geklont/verifiziert). Wir **können** keine privaten
+> Repositories, Unternehmensarbeit oder den langen Schwanz an einmaligen Skripten sehen —
+> „wir haben keinen direkten Konkurrenten gefunden" heißt genau das, nicht „es existiert keiner".
+
 ## ⚖️ Haftungsausschluss
 
 Community-Notizen, kein AMD-/Xilinx-Produkt. `iree-amd-aie` befindet sich in einer frühen Phase und

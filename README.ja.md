@@ -109,6 +109,37 @@ BENCH=1 ./scripts/run-matmul.sh bf16 # + benchmark
 XDNA1 と XDNA2 の比較、第1世代で Linux が難しい理由、そして `amdxdna` HAL がどのように `/dev/accel0` と
 やり取りするかについては **[docs/BACKGROUND.ja.md](docs/BACKGROUND.ja.md)** を参照。
 
+## 🧭 このリポジトリの立ち位置（そして *何ではないか*）
+
+**これは NPU-on-Linux の最初のプロジェクトではなく、スタックのどれ一つとして発明していない** —
+ドライバ、コンパイラ、ランタイムはいずれもこれより前から存在し、重い仕事を担っている:
+
+| レイヤー | 私たちが土台とする / 隣り合う先行成果 |
+|---|---|
+| カーネルドライバ | [`amd/xdna-driver`](https://github.com/amd/xdna-driver) — `amdxdna`、Linux 6.14 以降メインライン、XDNA1 を `/dev/accel/accel0` として列挙する |
+| コンパイラ / ランタイム | [`nod-ai/iree-amd-aie`](https://github.com/nod-ai/iree-amd-aie)、[`Xilinx/mlir-aie`](https://github.com/Xilinx/mlir-aie)（IRON）、[`Xilinx/llvm-aie`](https://github.com/Xilinx/llvm-aie)（Peano）、[`amd/Triton-XDNA`](https://github.com/amd/Triton-XDNA) — `npu1` 向けにコンパイルする SDK / フレームワーク |
+| 先行する XDNA1 + Linux コンピュート | 研究論文（[arXiv 2504.03083](https://arxiv.org/abs/2504.03083) — IRON 経由で Phoenix 7940HS 上で GPT-2）、プリミティブのみのチュートリアル、[Gentoo wiki の XDNA 解説](https://wiki.gentoo.org/wiki/User:Lockal/AMDXDNA) |
+| Linux でのターンキー NPU LLM | FastFlowLM · Lemonade 10.x · AMD Ryzen AI SW — **すべて XDNA2 専用であり、XDNA1 を明示的に除外している** |
+
+したがって「Linux 初の NPU」「初のコンパイラ」「XDNA1 を初めて動かした」と言えば、いずれも
+過大な主張になる — 私たちはそうした主張をしない。
+
+**このリポジトリが *何であるか*:** 公開情報の検索（2026-06）で見つかる限り、**第1世代の XDNA1
+（Phoenix、例: 7840U）NPU を Linux 上で** 動かして *任意の実コンピュート*（`i32`/`bf16` の matmul、conv）
+を走らせる、最初にして唯一の **パッケージ化された、再現可能な、エンドツーエンドのレシピ + ツールキット** だ
+— あらゆるターンキーなベンダースタックが取り残したまさにそのハードウェア / OS の組み合わせである。先行成果は、
+アップストリームの **SDK / フレームワーク**（ソースからのつまずきは自分で乗り越える）、**XDNA2 専用** のアプリ、
+**研究論文**（クリックして実行できるリポジトリはない）、あるいは **Windows 専用** のコンピュート経路のいずれかだ。
+際立っているのはその *バンドル* である: diagnose→enable→build→run のスクリプト群、ソースからの
+**落とし穴マップ**、**永続的な C-API/ctypes ランナー**（呼び出しごとの `iree-run-module` より ~11× 速い）、
+**アプリ例**（ウェイクワード、NPU カメラデーモン）、**正直に実現可能性を評価したアプリケーションガイド**
+（計測値「音声では NPU が CPU に負ける」を含む）、そして 5 言語のドキュメント。
+
+> **正直な但し書き:** この立ち位置は README とスニペットの公開検索によるものだ
+> （外部リポジトリをクローン / 検証したわけではない）。プライベートリポジトリ、企業内の作業、あるいは
+> 使い捨てスクリプトのロングテールは **見えない** — 「直接の同類は見つからなかった」とは
+> まさにそういう意味であって、「存在しない」という意味ではない。
+
 ## ⚖️ 免責事項
 
 これはコミュニティのノートであり、AMD/Xilinx の製品ではない。`iree-amd-aie` は初期フェーズで
