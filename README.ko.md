@@ -29,8 +29,8 @@ AMD Ryzen AI **1세대(XDNA1 / "Phoenix")** NPU를 *드라이버에는 보이지
 | ![npu-runner demo](docs/media/npu-runner.gif) | ![npu-camera demo](docs/media/npu-camera.gif) |
 | 웨이크워드 KWS — NPU에서 dense 레이어 3개 (타깃은 발화, 노이즈는 침묵 유지) | bf16은 NPU의 고유 강점 — 최대 **220 GFLOP/s** |
 | ![wake-word demo](docs/media/wake-word.gif) | ![benchmark demo](docs/media/benchmark.gif) |
-| 실제 `.onnx`를 NPU 타깃 가능한 MLIR로 가져오기 (하이브리드 임포트; 소스에서 빌드한 amd-aie 코드젠의 op 커버리지가 최전선이다) | |
-| ![onnx-import demo](docs/media/onnx-import.gif) | |
+| 실제 `.onnx`를 NPU 타깃 가능한 MLIR로 가져오기 (하이브리드 임포트; 소스에서 빌드한 amd-aie 코드젠의 op 커버리지가 최전선이다) | NPU로 **실제** 컴파일되는 matmul만 추출 — `npu-trim`이 op를 선별하고 깔끔한 커널을 내보낸다 |
+| ![onnx-import demo](docs/media/onnx-import.gif) | ![npu-trim demo](docs/media/npu-trim.gif) |
 
 ## ✅ 동작하는 것 (검증됨)
 

@@ -31,8 +31,8 @@ A reproducible, end-to-end recipe — with tools — for taking an AMD Ryzen AI
 | ![npu-runner demo](docs/media/npu-runner.gif) | ![npu-camera demo](docs/media/npu-camera.gif) |
 | wake-word KWS — 3 dense layers on the NPU (target fires, noise stays silent) | bf16 is the NPU's native strength — up to **220 GFLOP/s** |
 | ![wake-word demo](docs/media/wake-word.gif) | ![benchmark demo](docs/media/benchmark.gif) |
-| bring a real `.onnx` → NPU-targetable MLIR (hybrid import; the from-source amd-aie codegen's op coverage is the frontier) | |
-| ![onnx-import demo](docs/media/onnx-import.gif) | |
+| bring a real `.onnx` → NPU-targetable MLIR (hybrid import; the from-source amd-aie codegen's op coverage is the frontier) | extract the matmuls that **do** compile to the NPU — `npu-trim` screens ops & emits clean kernels |
+| ![onnx-import demo](docs/media/onnx-import.gif) | ![npu-trim demo](docs/media/npu-trim.gif) |
 
 ## ✅ What works (verified)
 
@@ -97,6 +97,7 @@ BENCH=1 ./scripts/run-matmul.sh bf16 # + benchmark
 
 ## 🔬 Examples & tools
 
+- [`tools/npu-trim/`](tools/npu-trim/) — **screen an imported `.onnx` and extract the matmuls that actually compile to the NPU** (classify ops, emit clean bf16 kernels, test-compile; the rest stays on CPU).
 - [`tools/npu-runner/`](tools/npu-runner/) — **persistent NPU caller** (IREE C API + `libnpu.so`/ctypes): load a `.vmfb` once, invoke many times — **~3.7 ms vs ~41 ms** for per-call `iree-run-module`. The piece that makes always-on use deployable.
 - [`examples/matmul_i32.mlir`](examples/matmul_i32.mlir) · [`examples/matmul_bf16.mlir`](examples/matmul_bf16.mlir) — the minimal verified NPU matmuls.
 - [`examples/wake-word/`](examples/wake-word/) — **a runnable wake-word detector** whose dense layers run on the NPU (`./run.sh --selftest`: target fires, noise stays silent). The cleanest always-on agent fit.

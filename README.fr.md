@@ -31,8 +31,8 @@ Une recette reproductible et de bout en bout — avec ses outils — pour faire 
 | ![npu-runner demo](docs/media/npu-runner.gif) | ![npu-camera demo](docs/media/npu-camera.gif) |
 | KWS de détection de mot-clé — 3 couches denses sur le NPU (la cible se déclenche, le bruit reste silencieux) | bf16 est la force native du NPU — jusqu'à **220 GFLOP/s** |
 | ![wake-word demo](docs/media/wake-word.gif) | ![benchmark demo](docs/media/benchmark.gif) |
-| transformer un vrai `.onnx` → MLIR ciblant le NPU (import hybride ; la couverture d'ops du codegen amd-aie compilé depuis les sources est la frontière) | |
-| ![onnx-import demo](docs/media/onnx-import.gif) | |
+| transformer un vrai `.onnx` → MLIR ciblant le NPU (import hybride ; la couverture d'ops du codegen amd-aie compilé depuis les sources est la frontière) | extraire les matmuls qui **se** compilent bien vers le NPU — `npu-trim` filtre les ops et émet des noyaux propres |
+| ![onnx-import demo](docs/media/onnx-import.gif) | ![npu-trim demo](docs/media/npu-trim.gif) |
 
 ## ✅ Ce qui fonctionne (vérifié)
 

@@ -31,8 +31,8 @@ NPU der **ersten Generation (XDNA1 / „Phoenix")** von *treibersichtbar-aber-un
 | ![npu-runner demo](docs/media/npu-runner.gif) | ![npu-camera demo](docs/media/npu-camera.gif) |
 | Weckwort-KWS — 3 dichte Schichten auf der NPU (das Ziel löst aus, Rauschen bleibt still) | bf16 ist die native Stärke der NPU — bis zu **220 GFLOP/s** |
 | ![wake-word demo](docs/media/wake-word.gif) | ![benchmark demo](docs/media/benchmark.gif) |
-| ein echtes `.onnx` → NPU-anvisierbares MLIR bringen (hybrider Import; die Op-Abdeckung des From-Source-amd-aie-Codegens ist die Grenze) | |
-| ![onnx-import demo](docs/media/onnx-import.gif) | |
+| ein echtes `.onnx` → NPU-anvisierbares MLIR bringen (hybrider Import; die Op-Abdeckung des From-Source-amd-aie-Codegens ist die Grenze) | die Matmuls extrahieren, die **tatsächlich** auf der NPU kompilieren — `npu-trim` filtert Ops & erzeugt saubere Kernels |
+| ![onnx-import demo](docs/media/onnx-import.gif) | ![npu-trim demo](docs/media/npu-trim.gif) |
 
 ## ✅ Was funktioniert (verifiziert)
 
