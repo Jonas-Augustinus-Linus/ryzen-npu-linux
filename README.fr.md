@@ -2,6 +2,13 @@
 
 # Exécuter du calcul réel sur un NPU Ryzen AI **XDNA1** sous **Linux**
 
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+![Platform: Linux](https://img.shields.io/badge/platform-Linux-1793D1?logo=linux&logoColor=white)
+![NPU: Ryzen AI XDNA1](https://img.shields.io/badge/NPU-Ryzen%20AI%20XDNA1-ED1C24?logo=amd&logoColor=white)
+[![Built with iree-amd-aie](https://img.shields.io/badge/built%20with-iree--amd--aie-FF7139)](https://github.com/nod-ai/iree-amd-aie)
+![matmul on NPU: working](https://img.shields.io/badge/matmul%20on%20NPU-working-success)
+![bf16 ~220 GFLOP/s](https://img.shields.io/badge/bf16-~220%20GFLOP%2Fs-brightgreen)
+
 Une recette reproductible et de bout en bout — avec ses outils — pour faire passer un NPU AMD Ryzen AI
 **de première génération (XDNA1 / « Phoenix »)** de l'état *visible-par-le-pilote-mais-inactif* à
 **l'exécution effective de matmuls** sous Linux, en compilant

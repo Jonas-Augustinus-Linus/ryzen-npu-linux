@@ -2,6 +2,13 @@
 
 # **Linux**에서 Ryzen AI **XDNA1** NPU로 실제 연산 돌리기
 
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+![Platform: Linux](https://img.shields.io/badge/platform-Linux-1793D1?logo=linux&logoColor=white)
+![NPU: Ryzen AI XDNA1](https://img.shields.io/badge/NPU-Ryzen%20AI%20XDNA1-ED1C24?logo=amd&logoColor=white)
+[![Built with iree-amd-aie](https://img.shields.io/badge/built%20with-iree--amd--aie-FF7139)](https://github.com/nod-ai/iree-amd-aie)
+![matmul on NPU: working](https://img.shields.io/badge/matmul%20on%20NPU-working-success)
+![bf16 ~220 GFLOP/s](https://img.shields.io/badge/bf16-~220%20GFLOP%2Fs-brightgreen)
+
 [`nod-ai/iree-amd-aie`](https://github.com/nod-ai/iree-amd-aie)를 소스에서 빌드하여,
 AMD Ryzen AI **1세대(XDNA1 / "Phoenix")** NPU를 *드라이버에는 보이지만 놀고 있는* 상태에서
 **실제로 matmul을 실행하는** 상태로 끌어올리는, 재현 가능한 엔드투엔드 레시피 — 도구까지 포함.
