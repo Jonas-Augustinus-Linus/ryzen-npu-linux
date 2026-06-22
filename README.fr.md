@@ -25,6 +25,10 @@ Une recette reproductible et de bout en bout — avec ses outils — pour faire 
 
 ## 🎬 Démos
 
+**De bout en bout — un MLP ONNX sur le NPU** (matmuls sur le NPU, `ReLU` sur le CPU ; correspond à la référence CPU à ~0.3% près) :
+
+![onnx-mlp end-to-end demo](docs/media/onnx-mlp.gif)
+
 | | |
 |:--:|:--:|
 | diagnose → matmul → benchmark → Python, **sur le NPU** | flou 2D NPU sur trois motifs `videotestsrc` → `/dev/video10` |

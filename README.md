@@ -25,6 +25,10 @@ A reproducible, end-to-end recipe — with tools — for taking an AMD Ryzen AI
 
 ## 🎬 Demos
 
+**End-to-end — an ONNX MLP on the NPU** (matmuls on the NPU, `ReLU` on the CPU; matches the CPU reference to ~0.3%):
+
+![onnx-mlp end-to-end demo](docs/media/onnx-mlp.gif)
+
 | | |
 |:--:|:--:|
 | diagnose → matmul → benchmark → Python, **on the NPU** | NPU 2D-blur on three `videotestsrc` patterns → `/dev/video10` |
@@ -101,6 +105,7 @@ BENCH=1 ./scripts/run-matmul.sh bf16 # + benchmark
 - [`tools/npu-runner/`](tools/npu-runner/) — **persistent NPU caller** (IREE C API + `libnpu.so`/ctypes): load a `.vmfb` once, invoke many times — **~3.7 ms vs ~41 ms** for per-call `iree-run-module`. The piece that makes always-on use deployable.
 - [`examples/matmul_i32.mlir`](examples/matmul_i32.mlir) · [`examples/matmul_bf16.mlir`](examples/matmul_bf16.mlir) — the minimal verified NPU matmuls.
 - [`examples/wake-word/`](examples/wake-word/) — **a runnable wake-word detector** whose dense layers run on the NPU (`./run.sh --selftest`: target fires, noise stays silent). The cleanest always-on agent fit.
+- [`examples/onnx-mlp/`](examples/onnx-mlp/) — **end-to-end: an ONNX MLP runs on the NPU** (npu-trim extracts the matmuls → npu-runner runs them → ReLU on CPU → verified vs a CPU reference).
 - [`examples/npu-camera/`](examples/npu-camera/) — **always-on NPU video filter → virtual camera** (`/dev/video10`): GStreamer → NPU per-frame → Zoom/Meet/OBS, at **30 fps**, installable as a systemd `--user` service.
 
 ## 🪤 The gotchas (why a naive build/run fails)

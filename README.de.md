@@ -25,6 +25,10 @@ NPU der **ersten Generation (XDNA1 / „Phoenix")** von *treibersichtbar-aber-un
 
 ## 🎬 Demos
 
+**Durchgängig — ein ONNX MLP auf der NPU** (Matmuls auf der NPU, `ReLU` auf der CPU; stimmt mit der CPU-Referenz auf ~0.3% überein):
+
+![onnx-mlp end-to-end demo](docs/media/onnx-mlp.gif)
+
 | | |
 |:--:|:--:|
 | Diagnose → Matmul → Benchmark → Python, **auf der NPU** | NPU-2D-Weichzeichner auf drei `videotestsrc`-Mustern → `/dev/video10` |

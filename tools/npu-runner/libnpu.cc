@@ -117,6 +117,43 @@ extern "C" int npu_mm128_i32(npu_ctx* c, const int32_t* a, const int32_t* b,
   return 0;
 }
 
+// out[M,N] f32 = a[M,K] @ b[K,N], bf16 inputs (uint16 bit-pattern). For the
+// kernels tools/npu-trim extracts. Returns 0 on success.
+extern "C" int npu_mm_bf16(npu_ctx* c, int32_t M, int32_t K, int32_t N,
+                           const uint16_t* a, const uint16_t* b, float* out) {
+  const iree_hal_dim_t sa[2] = {(iree_hal_dim_t)M, (iree_hal_dim_t)K};
+  const iree_hal_dim_t sb[2] = {(iree_hal_dim_t)K, (iree_hal_dim_t)N};
+  iree_hal_buffer_params_t bp = {};
+  bp.type = IREE_HAL_MEMORY_TYPE_DEVICE_LOCAL;
+  bp.access = IREE_HAL_MEMORY_ACCESS_ALL;
+  bp.usage = IREE_HAL_BUFFER_USAGE_DEFAULT;
+  iree_hal_buffer_view_t* va = NULL;
+  iree_hal_buffer_view_t* vb = NULL;
+  OKI(iree_hal_buffer_view_allocate_buffer_copy(
+      c->device, c->alloc, 2, sa, IREE_HAL_ELEMENT_TYPE_BFLOAT_16,
+      IREE_HAL_ENCODING_TYPE_DENSE_ROW_MAJOR, bp,
+      iree_make_const_byte_span(a, (iree_host_size_t)M * K * sizeof(uint16_t)), &va));
+  OKI(iree_hal_buffer_view_allocate_buffer_copy(
+      c->device, c->alloc, 2, sb, IREE_HAL_ELEMENT_TYPE_BFLOAT_16,
+      IREE_HAL_ENCODING_TYPE_DENSE_ROW_MAJOR, bp,
+      iree_make_const_byte_span(b, (iree_host_size_t)K * N * sizeof(uint16_t)), &vb));
+  iree_runtime_call_reset(&c->call);
+  OKI(iree_runtime_call_inputs_push_back_buffer_view(&c->call, va));
+  OKI(iree_runtime_call_inputs_push_back_buffer_view(&c->call, vb));
+  iree_hal_buffer_view_release(va);
+  iree_hal_buffer_view_release(vb);
+  OKI(iree_runtime_call_invoke(&c->call, 0));
+  iree_hal_buffer_view_t* vo = NULL;
+  OKI(iree_runtime_call_outputs_pop_front_buffer_view(&c->call, &vo));
+  iree_status_t s = iree_hal_device_transfer_d2h(
+      c->device, iree_hal_buffer_view_buffer(vo), 0, out,
+      (iree_host_size_t)M * N * sizeof(float),
+      IREE_HAL_TRANSFER_BUFFER_FLAG_DEFAULT, iree_infinite_timeout());
+  iree_hal_buffer_view_release(vo);
+  if (!iree_status_is_ok(s)) { iree_status_free(s); return 1; }
+  return 0;
+}
+
 extern "C" void npu_close(npu_ctx* c) {
   if (!c) return;
   iree_runtime_call_deinitialize(&c->call);

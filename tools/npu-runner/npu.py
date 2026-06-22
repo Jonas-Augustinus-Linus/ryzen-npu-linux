@@ -22,6 +22,17 @@ _lib.npu_mm128_i32.restype = ctypes.c_int
 _lib.npu_mm128_i32.argtypes = [ctypes.c_void_p, _i32p, _i32p, _i32p]
 _lib.npu_close.argtypes = [ctypes.c_void_p]
 
+# bf16 matmul (any [M,K]x[K,N] -> [M,N] f32) — for tools/npu-trim kernels.
+_u16p = ctypes.POINTER(ctypes.c_uint16)
+_f32p = ctypes.POINTER(ctypes.c_float)
+try:
+    _lib.npu_mm_bf16.restype = ctypes.c_int
+    _lib.npu_mm_bf16.argtypes = [ctypes.c_void_p, ctypes.c_int32, ctypes.c_int32,
+                                 ctypes.c_int32, _u16p, _u16p, _f32p]
+    _HAS_BF16 = True
+except AttributeError:
+    _HAS_BF16 = False  # older libnpu.so without bf16 support
+
 N = 128
 
 
@@ -45,6 +56,25 @@ class NPU:
         )
         if rc:
             raise RuntimeError("npu_mm128_i32 failed")
+        return out
+
+    def matmul_bf16(self, a, b):
+        """a @ b on the NPU. a:[M,K], b:[K,N] (any numpy float, cast to bf16);
+        returns [M,N] float32. The kernel's vmfb must match these shapes."""
+        import ml_dtypes
+        a = np.ascontiguousarray(a, ml_dtypes.bfloat16)
+        b = np.ascontiguousarray(b, ml_dtypes.bfloat16)
+        M, K = a.shape
+        K2, N = b.shape
+        assert K == K2 and _HAS_BF16
+        out = np.empty((M, N), np.float32)
+        rc = _lib.npu_mm_bf16(
+            self.h, M, K, N,
+            a.view(np.uint16).ctypes.data_as(_u16p),
+            b.view(np.uint16).ctypes.data_as(_u16p),
+            out.ctypes.data_as(_f32p))
+        if rc:
+            raise RuntimeError("npu_mm_bf16 failed")
         return out
 
     def close(self):

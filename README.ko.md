@@ -23,6 +23,10 @@ AMD Ryzen AI **1세대(XDNA1 / "Phoenix")** NPU를 *드라이버에는 보이지
 
 ## 🎬 데모
 
+**엔드투엔드 — NPU에서 실행하는 ONNX MLP** (matmul은 NPU에서, `ReLU`는 CPU에서; CPU 레퍼런스와 ~0.3% 이내로 일치):
+
+![onnx-mlp end-to-end demo](docs/media/onnx-mlp.gif)
+
 | | |
 |:--:|:--:|
 | diagnose → matmul → benchmark → Python, **NPU에서 실행** | 세 가지 `videotestsrc` 패턴에 NPU 2D-blur 적용 → `/dev/video10` |
