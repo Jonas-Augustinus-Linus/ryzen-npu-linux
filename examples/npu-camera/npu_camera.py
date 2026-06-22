@@ -90,7 +90,7 @@ def on_sample(sink, appsrc):
 def main():
     Gst.init(None)
     src = (f"v4l2src device={CAM}" if CAM else
-           "videotestsrc is-live=true pattern=ball")
+           f"videotestsrc is-live=true pattern={os.environ.get('PATTERN', 'ball')}")
     inp = Gst.parse_launch(
         f"{src} ! videoconvert ! videoscale ! "
         f"video/x-raw,format=RGB,width={W},height={H} ! "

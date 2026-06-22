@@ -86,7 +86,7 @@ BENCH=1 ./scripts/run-matmul.sh bf16 # + benchmark
 
 ## 🔬 Examples & tools
 
-| `npu-runner` — load a `.vmfb` once, invoke the NPU many times | `npu-camera` — NPU video filter → `/dev/video10` |
+| `npu-runner` — diagnose → matmul → benchmark → Python, on the NPU | `npu-camera` — NPU 2D-blur on three `videotestsrc` patterns → `/dev/video10` |
 |:---:|:---:|
 | ![npu-runner demo](docs/media/npu-runner.gif) | ![npu-camera demo](docs/media/npu-camera.gif) |
 
