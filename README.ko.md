@@ -105,6 +105,20 @@ XDNA1 vs XDNA2, 1세대에서 Linux가 왜 어려운지, 그리고 `amdxdna` HAL
 바뀐다. 버전/플래그가 변동된다. 여기 있는 모든 것은 위에 명시된 바로 그 머신에서
 2026-06-22에 검증되었다. 다른 XDNA1 노트북에서의 결과를 담은 이슈/PR를 환영한다.
 
-## License
+## 🤝 기여하기
 
-[MIT](LICENSE).
+가장 쓸모 있는 기여는 **여러분 자신의 XDNA1 머신에서 나온 결과**다 — Linux에서의
+1세대 Ryzen AI 커버리지는 빈약하다. **[CONTRIBUTING.md](CONTRIBUTING.md)**를 보라. 요약하면:
+
+- **하드웨어 결과를 보고하라** — 여러분의 칩 / 커널 / 배포판과 무엇이 동작했고 무엇이 실패했는지(이슈 템플릿 제공).
+- 다른 shape/dtype에 대한 **벤치마크를 추가**하거나, **새 op**(conv, i8, …)를 추가하라.
+- **[gotcha](docs/GOTCHAS.ko.md)를 고치거나 다듬고**, 스크립트를 견고하게 하거나, 번역을 추가/수정하라.
+- Fork → branch → test with `scripts/run-matmul.sh` → PR describing what you ran it on.
+
+## 📄 라이선스
+
+**[MIT](LICENSE)** © 2026 Jonas-Augustinus-Linus — 쓰고, 포크하고, 배포하라.
+
+이 저장소의 스크립트와 문서는 MIT다. 이들은 각자의 라이선스를 따르는 서드파티
+프로젝트 — IREE와 `iree-amd-aie`(Apache-2.0 WITH LLVM-exception), `Xilinx/llvm-aie`(Peano) —
+를 빌드하고 구동하며, 이 저장소는 그것들을 재배포하지 않는다.

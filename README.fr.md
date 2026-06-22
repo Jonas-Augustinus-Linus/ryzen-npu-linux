@@ -110,6 +110,20 @@ Notes communautaires, pas un produit AMD/Xilinx. `iree-amd-aie` est en phase pr�
 évolue vite ; les versions/flags dérivent. Tout ce qui figure ici a été vérifié sur la machine exacte
 ci-dessus le 2026-06-22. Les issues/PR avec des résultats provenant d'autres portables XDNA1 sont les bienvenus.
 
-## Licence
+## 🤝 Contribuer
 
-[MIT](LICENSE).
+La contribution la plus utile est **un résultat issu de votre propre machine XDNA1** — la
+couverture du Ryzen AI de première génération sous Linux est mince. Voir **[CONTRIBUTING.md](CONTRIBUTING.md)**. En bref :
+
+- **Rapportez des résultats matériels** — votre puce / noyau / distribution et ce qui a fonctionné ou échoué (un gabarit d'issue est fourni).
+- **Ajoutez des tests de performance** pour d'autres formes/dtypes, ou de **nouvelles ops** (conv, i8, …).
+- **Corrigez ou affinez un [piège](docs/GOTCHAS.fr.md)**, durcissez les scripts, ou ajoutez/corrigez une traduction.
+- Fork → branch → test avec `scripts/run-matmul.sh` → PR décrivant la machine sur laquelle vous l'avez exécuté.
+
+## 📄 Licence
+
+**[MIT](LICENSE)** © 2026 Jonas-Augustinus-Linus — utilisez-le, forkez-le, livrez-le.
+
+Les scripts et la documentation de ce dépôt sont sous licence MIT. Ils compilent et pilotent des
+projets tiers sous leurs propres licences — IREE et `iree-amd-aie` (Apache-2.0 WITH
+LLVM-exception), `Xilinx/llvm-aie` (Peano) — que ce dépôt ne redistribue pas.

@@ -107,6 +107,20 @@ Community-Notizen, kein AMD-/Xilinx-Produkt. `iree-amd-aie` befindet sich in ein
 bewegt sich schnell; Versionen/Flags driften. Alles hier wurde auf der exakten
 Maschine oben am 2026-06-22 verifiziert. Issues/PRs mit Ergebnissen von anderen XDNA1-Laptops sind willkommen.
 
-## Lizenz
+## 🤝 Mitwirken
 
-[MIT](LICENSE).
+Der nützlichste Beitrag ist **ein Ergebnis von deiner eigenen XDNA1-Maschine** — die
+Abdeckung von Ryzen AI der ersten Generation unter Linux ist dünn. Siehe **[CONTRIBUTING.md](CONTRIBUTING.md)**. Kurz gesagt:
+
+- **Melde Hardware-Ergebnisse** — deinen Chip / Kernel / deine Distro und was funktioniert hat oder fehlschlug (Issue-Vorlage bereitgestellt).
+- **Füge Benchmarks** für weitere Formen/dtypes hinzu oder **neue Ops** (conv, i8, …).
+- **Behebe oder verfeinere einen [Stolperstein](docs/GOTCHAS.de.md)**, härte die Skripte ab oder füge eine Übersetzung hinzu/korrigiere sie.
+- Fork → branch → test mit `scripts/run-matmul.sh` → PR, der beschreibt, worauf du es ausgeführt hast.
+
+## 📄 Lizenz
+
+**[MIT](LICENSE)** © 2026 Jonas-Augustinus-Linus — nutze es, forke es, liefere es aus.
+
+Die Skripte und Dokumente in diesem Repository stehen unter MIT. Sie bauen und steuern
+Drittanbieter-Projekte unter deren eigenen Lizenzen — IREE und `iree-amd-aie` (Apache-2.0 WITH
+LLVM-exception), `Xilinx/llvm-aie` (Peano) —, die dieses Repository nicht weiterverteilt.

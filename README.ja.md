@@ -106,6 +106,20 @@ XDNA1 と XDNA2 の比較、第1世代で Linux が難しい理由、そして `
 変化が速く、バージョンやフラグはドリフトする。ここに書かれたものはすべて、上記のとおりの正確なマシン上で
 2026-06-22 に検証した。他の XDNA1 ラップトップでの結果を伴う Issue/PR を歓迎する。
 
-## ライセンス
+## 🤝 コントリビュート
 
-[MIT](LICENSE)。
+最も有用な貢献は、**あなた自身の XDNA1 マシンでの結果** だ — 第1世代の
+Linux 上 Ryzen AI に関する情報は乏しい。**[CONTRIBUTING.md](CONTRIBUTING.md)** を参照。要点だけ:
+
+- **ハードウェアの結果を報告する** — あなたのチップ／カーネル／ディストロと、何が動いて何が失敗したか（Issue テンプレートを用意している）。
+- 他の形状／dtype 向けの **ベンチマークを追加する**、あるいは **新しい op**（conv、i8、…）を追加する。
+- **[落とし穴](docs/GOTCHAS.ja.md)** を修正・改良する、スクリプトを堅牢にする、または翻訳を追加・修正する。
+- Fork → branch → test with `scripts/run-matmul.sh` → PR describing what you ran it on.
+
+## 📄 ライセンス
+
+**[MIT](LICENSE)** © 2026 Jonas-Augustinus-Linus — 使って、フォークして、出荷してくれ。
+
+このリポジトリのスクリプトとドキュメントは MIT だ。これらは、それぞれ独自のライセンスの下にある
+サードパーティのプロジェクト — IREE と `iree-amd-aie`（Apache-2.0 WITH
+LLVM-exception）、`Xilinx/llvm-aie`（Peano） — をビルドし駆動するものであり、このリポジトリはそれらを再配布しない。

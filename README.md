@@ -107,6 +107,20 @@ Community notes, not an AMD/Xilinx product. `iree-amd-aie` is early-phase and
 moves fast; versions/flags drift. Everything here was verified on the exact
 machine above on 2026-06-22. Issues/PRs with results from other XDNA1 laptops welcome.
 
-## License
+## 🤝 Contributing
 
-[MIT](LICENSE).
+The most useful contribution is **a result from your own XDNA1 machine** — first-gen
+Ryzen AI on Linux coverage is thin. See **[CONTRIBUTING.md](CONTRIBUTING.md)**. In short:
+
+- **Report hardware results** — your chip / kernel / distro and what worked or failed (issue template provided).
+- **Add benchmarks** for other shapes/dtypes, or **new ops** (conv, i8, …).
+- **Fix or refine a [gotcha](docs/GOTCHAS.md)**, harden the scripts, or add/correct a translation.
+- Fork → branch → test with `scripts/run-matmul.sh` → PR describing what you ran it on.
+
+## 📄 License
+
+**[MIT](LICENSE)** © 2026 Jonas-Augustinus-Linus — use it, fork it, ship it.
+
+The scripts and docs in this repo are MIT. They build and drive third-party
+projects under their own licenses — IREE and `iree-amd-aie` (Apache-2.0 WITH
+LLVM-exception), `Xilinx/llvm-aie` (Peano) — which this repo does not redistribute.
