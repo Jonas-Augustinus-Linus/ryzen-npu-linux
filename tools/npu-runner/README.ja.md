@@ -2,6 +2,8 @@
 
 # npu-runner — 常駐型 XDNA1 NPU 呼び出し器（IREE ランタイム C API）
 
+![npu-runner demo](../../docs/media/npu-runner.gif)
+
 `.vmfb` を **一度だけ** ロードし、呼び出しごとに `iree-run-module` を起動するのではなく、
 同一プロセス内で NPU を何度も呼び出します。7840U での実測値は **約 3.7 ms/invoke 対
 約 41 ms/invoke**（サブプロセス方式）— 約 11 倍高速です。XRT のデバイスオープンと

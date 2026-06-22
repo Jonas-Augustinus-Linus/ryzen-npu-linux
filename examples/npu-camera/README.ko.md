@@ -2,6 +2,8 @@
 
 # npu-camera — 상시 동작 NPU 비디오 필터 → 가상 카메라
 
+![npu-camera demo](../../docs/media/npu-camera.gif)
+
 비디오를 캡처해 **모든 프레임을 XDNA1 NPU로 처리**한 뒤, 그 결과를
 `/dev/video10` 가상 카메라(Zoom / Chrome / OBS / Meet에서 사용 가능)로 내보냅니다.
 

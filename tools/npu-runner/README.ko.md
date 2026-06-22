@@ -2,6 +2,8 @@
 
 # npu-runner — 상주형 XDNA1 NPU 호출기 (IREE runtime C API)
 
+![npu-runner demo](../../docs/media/npu-runner.gif)
+
 `.vmfb`를 **한 번만** 로드한 뒤, 호출마다 `iree-run-module`을 새로 띄우는 대신
 프로세스 내부에서 NPU를 여러 번 호출합니다. 7840U에서 측정한 결과: **~3.7 ms/invoke 대
 ~41 ms/invoke**(서브프로세스 경로) — 약 11배 빠릅니다. XRT 디바이스 오픈 + 프로세스

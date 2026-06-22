@@ -2,6 +2,8 @@
 
 # npu-camera — always-on NPU video filter → virtual camera
 
+![npu-camera demo](../../docs/media/npu-camera.gif)
+
 Captures video, runs **every frame through the XDNA1 NPU**, and publishes the
 result to the `/dev/video10` virtual camera (usable by Zoom / Chrome / OBS / Meet).
 

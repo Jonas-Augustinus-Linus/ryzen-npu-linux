@@ -2,6 +2,8 @@
 
 # npu-camera — filtre vidéo NPU permanent → caméra virtuelle
 
+![npu-camera demo](../../docs/media/npu-camera.gif)
+
 Capture la vidéo, fait passer **chaque image à travers le NPU XDNA1**, et publie le
 résultat vers la caméra virtuelle `/dev/video10` (utilisable par Zoom / Chrome / OBS / Meet).
 

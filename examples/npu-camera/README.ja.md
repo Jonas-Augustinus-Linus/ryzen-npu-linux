@@ -2,6 +2,8 @@
 
 # npu-camera — 常時稼働の NPU ビデオフィルター → 仮想カメラ
 
+![npu-camera demo](../../docs/media/npu-camera.gif)
+
 ビデオをキャプチャし、**すべてのフレームを XDNA1 NPU で処理**して、その結果を
 `/dev/video10` 仮想カメラ（Zoom / Chrome / OBS / Meet で利用可能）に出力します。
 

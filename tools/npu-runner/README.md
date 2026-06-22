@@ -2,6 +2,8 @@
 
 # npu-runner — persistent XDNA1 NPU caller (IREE runtime C API)
 
+![npu-runner demo](../../docs/media/npu-runner.gif)
+
 Loads a `.vmfb` **once** and invokes the NPU many times in-process, instead of
 spawning `iree-run-module` per call. Measured on a 7840U: **~3.7 ms/invoke vs
 ~41 ms/invoke** for the subprocess path — ~11× faster, because XRT device-open +
