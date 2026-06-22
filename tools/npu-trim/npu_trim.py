@@ -123,10 +123,49 @@ func.func @matmul(%a: tensor<{Mp}x{Kp}xbf16>, %b: tensor<{Kp}x{Np}xbf16>) -> ten
     return mlir, (Mp, Kp, Np)
 
 
-def compile_npu(mlir_path, vmfb_path):
+def extract_convs(mlir):
+    """Find 2D conv ops -> list of dicts {N,H,W,IC,OC,KH,KW,dtype,layout}."""
+    out = []
+    # NCHW/FCHW (what ONNX imports to): ins(input[N,IC,H,W], filter[OC,IC,KH,KW])
+    for m in re.finditer(r"linalg\.conv_2d_nchw_fchw\b.*?ins\([^:]*:\s*"
+                         r"tensor<(\d+)x(\d+)x(\d+)x(\d+)x(\w+)>,\s*tensor<(\d+)x(\d+)x(\d+)x(\d+)x\w+>\)", mlir):
+        N, IC, H, W, t, OC, _IC, KH, KW = m.groups()
+        out.append(dict(N=int(N), H=int(H), W=int(W), IC=int(IC), OC=int(OC),
+                        KH=int(KH), KW=int(KW), dtype=t, layout="NCHW"))
+    # NHWC/HWCF (the NPU-native form): ins(input[N,H,W,IC], filter[KH,KW,IC,OC])
+    for m in re.finditer(r"linalg\.conv_2d_nhwc_hwcf\b.*?ins\([^:]*:\s*"
+                         r"tensor<(\d+)x(\d+)x(\d+)x(\d+)x(\w+)>,\s*tensor<(\d+)x(\d+)x\d+x(\d+)x\w+>\)", mlir):
+        N, H, W, IC, t, KH, KW, OC = m.groups()
+        out.append(dict(N=int(N), H=int(H), W=int(W), IC=int(IC), OC=int(OC),
+                        KH=int(KH), KW=int(KW), dtype=t, layout="NHWC"))
+    return out
+
+
+def emit_conv_kernel(c):
+    """A clean conv_2d_nhwc_hwcf bf16→f32 kernel (the only conv form npu1 accepts).
+    Assumes stride 1, no padding (OH=H-KH+1). Batch is bumped to >=2 because the
+    amd-aie conv codegen can't set a config for N=1. Returns (mlir, N)."""
+    H, W, IC, OC, KH, KW = (c[k] for k in ("H", "W", "IC", "OC", "KH", "KW"))
+    N = max(2, c["N"])
+    OH, OW = H - KH + 1, W - KW + 1
+    mlir = f"""// extracted NPU conv kernel — conv_2d_nhwc_hwcf bf16→f32 (from a {c['layout']} conv)
+func.func @conv(%in: tensor<{N}x{H}x{W}x{IC}xbf16>, %fil: tensor<{KH}x{KW}x{IC}x{OC}xbf16>) -> tensor<{N}x{OH}x{OW}x{OC}xf32> {{
+  %z = arith.constant 0.0 : f32
+  %i = tensor.empty() : tensor<{N}x{OH}x{OW}x{OC}xf32>
+  %f = linalg.fill ins(%z : f32) outs(%i : tensor<{N}x{OH}x{OW}x{OC}xf32>) -> tensor<{N}x{OH}x{OW}x{OC}xf32>
+  %r = linalg.conv_2d_nhwc_hwcf {{dilations = dense<1> : tensor<2xi64>, strides = dense<1> : tensor<2xi64>}}
+       ins(%in, %fil : tensor<{N}x{H}x{W}x{IC}xbf16>, tensor<{KH}x{KW}x{IC}x{OC}xbf16>)
+       outs(%f : tensor<{N}x{OH}x{OW}x{OC}xf32>) -> tensor<{N}x{OH}x{OW}x{OC}xf32>
+  return %r : tensor<{N}x{OH}x{OW}x{OC}xf32>
+}}
+"""
+    return mlir, N
+
+
+def compile_npu(mlir_path, vmfb_path, lower="air", tile="pack-peel"):
     cmd = [os.path.join(IREE, "iree-compile"), mlir_path,
            "--iree-hal-target-backends=amd-aie", "--iree-amdaie-target-device=npu1_4col",
-           "--iree-amdaie-lower-to-aie-pipeline=air", "--iree-amdaie-tile-pipeline=pack-peel",
+           f"--iree-amdaie-lower-to-aie-pipeline={lower}", f"--iree-amdaie-tile-pipeline={tile}",
            f"--iree-amd-aie-peano-install-dir={PEANO}",
            f"--iree-amd-aie-install-dir={os.path.join(ROOT, 'iree-install')}",
            "--iree-amdaie-device-hal=amdxdna", "-o", vmfb_path]
@@ -154,36 +193,57 @@ def main():
         col, lbl = tiers[tier]
         print(f"  {col}{lbl}{Rst}  {op:<34} x{n}  {D}{why}{Rst}")
 
-    mms = extract_matmuls(mlir)
-    print(f"\n{B}== extracted matmul kernels ({len(mms)}) =={Rst}")
-    if not mms:
-        print(f"  {D}no static-shape linalg.matmul found to extract.{Rst}")
-        return
     os.makedirs(args.out_dir, exist_ok=True)
+    mms = extract_matmuls(mlir)
+    convs = extract_convs(mlir)
+    if not mms and not convs:
+        print(f"\n  {D}no static-shape linalg.matmul or conv_2d found to extract.{Rst}")
+        return
+
+    def report(line, kpath, lower, tile):
+        if args.no_compile:
+            print(line)
+            return 0
+        success, r = compile_npu(kpath, kpath.replace(".mlir", ".vmfb"), lower, tile)
+        if success:
+            print(f"{line}\n     {G}✓ compiles to npu1{Rst}")
+            return 1
+        err = next((l for l in (r.stderr or "").splitlines()
+                    if "error" in l.lower() and "0x" not in l), "(crashed — likely unsupported shape/dtype)")
+        print(f"{line}\n     {RED}✗ {err.strip()[:80]}{Rst}")
+        return 0
+
     ok = 0
+    print(f"\n{B}== extracted matmul kernels ({len(mms)}) =={Rst}")
     for idx, (M, K, N, it, ot) in enumerate(mms):
         kernel, (Mp, Kp, Np) = emit_kernel(M, K, N)
         kpath = os.path.join(args.out_dir, f"matmul_{idx}_{Mp}x{Kp}x{Np}.mlir")
         open(kpath, "w").write(kernel)
         padnote = "" if (Mp, Kp, Np) == (M, K, N) else f"{D} (padded from {M}x{K}x{N}){Rst}"
-        line = f"  matmul[{idx}] {it}→{ot}  {Mp}x{Kp}x{Np}{padnote}  →  {kpath}"
-        if args.no_compile:
-            print(line)
-            continue
-        success, r = compile_npu(kpath, kpath.replace(".mlir", ".vmfb"))
-        if success:
-            ok += 1
-            print(f"{line}\n     {G}✓ compiles to npu1{Rst}")
-        else:
-            err = next((l for l in (r.stderr or "").splitlines()
-                        if "error" in l.lower() and "0x" not in l), "(crashed — likely unsupported shape/dtype)")
-            print(f"{line}\n     {RED}✗ {err.strip()[:80]}{Rst}")
+        ok += report(f"  matmul[{idx}] {it}→{ot}  {Mp}x{Kp}x{Np}{padnote}  →  {kpath}",
+                     kpath, "air", "pack-peel")
 
+    print(f"\n{B}== extracted conv kernels ({len(convs)}) =={Rst}")
+    for idx, c in enumerate(convs):
+        kernel, Nk = emit_conv_kernel(c)
+        kpath = os.path.join(args.out_dir,
+                             f"conv_{idx}_{Nk}x{c['H']}x{c['W']}x{c['IC']}_to{c['OC']}.mlir")
+        open(kpath, "w").write(kernel)
+        notes = []
+        if c["layout"] != "NHWC":
+            notes.append(f"imported {c['layout']} — transpose to NHWC at the edges")
+        if Nk != c["N"]:
+            notes.append(f"batch {c['N']}→{Nk} (npu1 conv needs N≥2; run a {Nk}-batch, keep output[0])")
+        tag = f"{D} ({'; '.join(notes)}){Rst}" if notes else ""
+        ok += report(f"  conv[{idx}] {c['dtype']}  {Nk}x{c['H']}x{c['W']}x{c['IC']} * {c['KH']}x{c['KW']} → {c['OC']}ch{tag}  →  {kpath}",
+                     kpath, "objectFifo", "conv-decompose")
+
+    total = len(mms) + len(convs)
     if args.no_compile:
-        print(f"\n{B}summary:{Rst} emitted {len(mms)} kernel(s) to {args.out_dir}/ "
+        print(f"\n{B}summary:{Rst} emitted {total} kernel(s) to {args.out_dir}/ "
               f"(re-run without --no-compile to test-compile them on npu1).")
     else:
-        print(f"\n{B}summary:{Rst} {ok}/{len(mms)} matmul kernels lower to the NPU; "
+        print(f"\n{B}summary:{Rst} {ok}/{total} kernels lower to the NPU; "
               f"wire them via tools/npu-runner, keep the ⛔ ops on CPU.")
 
 
