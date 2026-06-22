@@ -84,10 +84,12 @@ BENCH=1 ./scripts/run-matmul.sh bf16 # + benchmark
 | [`scripts/build.sh`](scripts/build.sh) | Clones + builds `iree-amd-aie` with every workaround applied. |
 | [`scripts/run-matmul.sh`](scripts/run-matmul.sh) | Compiles + runs an `i32`/`bf16` matmul on the NPU. The recipe. |
 
-## 🔬 Examples
+## 🔬 Examples & tools
 
+- [`tools/npu-runner/`](tools/npu-runner/) — **persistent NPU caller** (IREE C API + `libnpu.so`/ctypes): load a `.vmfb` once, invoke many times — **~3.7 ms vs ~41 ms** for per-call `iree-run-module`. The piece that makes always-on use deployable.
 - [`examples/matmul_i32.mlir`](examples/matmul_i32.mlir) · [`examples/matmul_bf16.mlir`](examples/matmul_bf16.mlir) — the minimal verified NPU matmuls.
 - [`examples/wake-word/`](examples/wake-word/) — **a runnable wake-word detector** whose dense layers run on the NPU (`./run.sh --selftest`: target fires, noise stays silent). The cleanest always-on agent fit.
+- [`examples/npu-camera/`](examples/npu-camera/) — **always-on NPU video filter → virtual camera** (`/dev/video10`): GStreamer → NPU per-frame → Zoom/Meet/OBS, at **30 fps**, installable as a systemd `--user` service.
 
 ## 🪤 The gotchas (why a naive build/run fails)
 

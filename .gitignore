@@ -5,3 +5,7 @@ llvm-aie/
 *.vmfb
 *.log
 __pycache__/
+*.so
+npu_runner
+matmul.vmfb
+__pycache__/

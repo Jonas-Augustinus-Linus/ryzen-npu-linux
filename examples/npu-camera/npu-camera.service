@@ -1,0 +1,23 @@
+# Always-on NPU camera filter (systemd --user service).
+# Install:
+#   1. edit ExecStart below if you cloned the repo somewhere other than ~/ryzen-npu-linux
+#   2. cp this file to ~/.config/systemd/user/npu-camera.service
+#   3. cp npu-camera.env.example ~/.config/npu-camera.env   (set CAM=/dev/videoN)
+#   4. systemctl --user daemon-reload && systemctl --user enable --now npu-camera
+[Unit]
+Description=NPU camera — XDNA1 NPU video filter to /dev/video10
+After=graphical-session.target
+PartOf=graphical-session.target
+
+[Service]
+Type=simple
+EnvironmentFile=-%h/.config/npu-camera.env
+ExecStartPre=/usr/bin/test -e /dev/video10
+ExecStart=/usr/bin/python3 %h/ryzen-npu-linux/examples/npu-camera/npu_camera.py
+Restart=on-failure
+RestartSec=3
+# Be gentle on the CPU (power-sensitive laptops).
+Nice=5
+
+[Install]
+WantedBy=graphical-session.target
