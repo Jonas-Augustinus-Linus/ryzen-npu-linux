@@ -1,0 +1,7 @@
+# build/output artifacts (people build these locally)
+iree-build/
+iree-install/
+llvm-aie/
+*.vmfb
+*.log
+__pycache__/
