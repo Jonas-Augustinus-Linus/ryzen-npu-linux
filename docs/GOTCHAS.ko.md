@@ -138,3 +138,91 @@ $ python build_tools/ci/amdxdna_driver_utils/amdxdna_ioctl.py --num-cols
   ioctl과 디바이스 열거가 모두 첫 시도에 작동했다.
 - **Python 3.13/3.14는 너무 최신**이라 IREE의 빌드 의존성에 맞지 않는다 — 격리된 3.12를 사용하라
   (스크립트는 `uv`를 사용한다).
+
+---
+
+# mlir-aie (IRON) 트랙 — 별개의 gotcha들
+
+두 번째 경로 — `mlir_aie` wheel을 통한
+[`Xilinx/mlir-aie`](https://github.com/Xilinx/mlir-aie)(여기 [MLIR-AIE.md](MLIR-AIE.md)
+참조) — 에는 위의 iree-amd-aie 빌드와는 다른 그 자체의 함정이 있다.
+`scripts/setup-mlir-aie.sh`와 `scripts/mlir-aie-env.sh`가 이들을 모두 처리해준다;
+이것이 그 스크립트들이 우회하고 있는 내용이다.
+
+## M1. 여기서는 Python **3.14**를 쓴다 — iree 빌드와 정반대
+
+iree-amd-aie 빌드는 **3.12**를 원한다(위 참고 사항). `mlir_aie` wheel은
+3.11–3.14를 지원하며, Ubuntu 패키지 `pyxrt`(`python3-xrt`에서 나오며
+`pyxrt.cpython-314-*.so`로 빌드됨)를 쓰는 유일한 방법은 **3.14** venv다 — 3.12
+venv는 그 `pyxrt`를 import 할 수 없다. 따라서 두 트랙은 의도적으로 서로 다른
+Python venv를 쓴다.
+
+## M2. `pyxrt`를 venv에 노출하기
+
+`make run_py`는 `import pyxrt`를 한다. Debian 패키지는 그것을
+`/usr/lib/python3/dist-packages/pyxrt.cpython-314-*.so`에 둔다. **그 파일 하나만**
+venv의 `site-packages`에 심볼릭 링크하라 — 깨끗한 venv여야 하며
+**`--system-site-packages`는 아니다**(그렇게 하면 나머지 시스템 site가 딸려
+들어와 wheel 의존성을 가릴 위험이 있다):
+
+```bash
+ln -sf /usr/lib/python3/dist-packages/pyxrt.cpython-314-*.so "$VENV/lib/python3.14/site-packages/"
+```
+
+## M3. ⚠️ `env_setup.sh`를 파이프 없이 source 할 것
+
+```
+error: unknown target triple 'aie2-none-unknown-elf'
+make: *** [Makefile:37: build/passThrough.cc.o] Error 1
+```
+
+Makefile이 AIE 커널을 Peano의 `clang++`가 아니라 **시스템** `/bin/clang++`(`aie2`
+타깃이 없다)로 컴파일했다. 원인: `PEANO_INSTALL_DIR`이 비어 있었다. *그것의*
+원인:
+
+```bash
+source utils/env_setup.sh "$MLIR_AIE" "$PEANO" | tail   # WRONG
+```
+
+파이프는 왼쪽을 **서브셸**에서 실행하므로, `env_setup.sh`의 모든
+`export`(`PEANO_INSTALL_DIR`, `MLIR_AIE_INSTALL_DIR`, `NPU2`)는 서브셸이 끝나는
+순간 버려진다. **파이프 말고 리다이렉트하라:**
+
+```bash
+source utils/env_setup.sh "$MLIR_AIE" "$PEANO" >/tmp/env.log 2>&1   # RIGHT
+```
+
+(또한: `env_setup.sh`는 `set -e`/`set -u`에 안전하게 작성되어 있지 않다 —
+`set -euo pipefail` 아래에서 source 하면 조용히 중단된다. `scripts/mlir-aie-env.sh`는
+source 전후로 그 플래그들을 완화했다가 복원한다.)
+
+## M4. `make run_py`(pyxrt) vs `make run`(C++ 호스트 + libxrt-dev)
+
+많은 예제가 C++ 호스트(`test.cpp` → `make run`)와 Python 호스트(`test.py` →
+`make run_py`)를 **둘 다** 제공한다. C++ 호스트는 XRT **개발 헤더**(`libxrt-dev`)가
+필요한데, 런타임 패키지(`libxrt-utils-npu`, `python3-xrt`)는 그것을 설치하지
+**않는다**. `run_py`를 선호하라. C++ 전용 예제(matrix_multiplication, vision,
+relu, softmax)는: `sudo apt install libxrt-dev`.
+
+## M5. 이미 빌드한 Peano를 재사용하라
+
+`llvm-aie`를 다시 받지 말라. iree-amd-aie Peano를 `env_setup.sh`의 두 번째 인자로
+넘겨 자동 설치를 건너뛰게 하라:
+
+```bash
+source utils/env_setup.sh "$SITE/mlir_aie" "$HOME/src/iree-amd-aie/llvm-aie"
+```
+
+이는 `aie` / `aie2` / `aie2p`를 지원하므로, 같은 Peano가 두 트랙 모두에 쓰인다.
+
+## M6. 네트워크 전체 설계는 Phoenix의 4 컬럼보다 많은 것을 원한다
+
+```
+RuntimeError: DRM_IOCTL_AMDXDNA_CREATE_HWCTX IOCTL failed (err=-22): Invalid argument
+```
+
+`ml/mobilenet`은 **빌드**되지만 `hw_context` 생성에서 실패한다: 어레이 전체
+설계가 Phoenix가 노출하는 것보다 많은 컬럼을 요청한다(**4** — 위 gotcha #6과
+같은 4다). 단일 빌딩 블록(`conv2d`, `bottleneck`, `resnet/layers_conv2_x`)과
+`magika`는 4 컬럼에 들어맞고 실행되지만, 전체 네트워크는 XDNA2(Strix, 8 컬럼)
+영역이다.

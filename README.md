@@ -108,6 +108,37 @@ BENCH=1 ./scripts/run-matmul.sh bf16 # + benchmark
 - [`examples/onnx-mlp/`](examples/onnx-mlp/) — **end-to-end: an ONNX MLP runs on the NPU** (npu-trim extracts the matmuls → npu-runner runs them → ReLU on CPU → verified vs a CPU reference).
 - [`examples/npu-camera/`](examples/npu-camera/) — **always-on NPU video filter → virtual camera** (`/dev/video10`): GStreamer → NPU per-frame → Zoom/Meet/OBS, at **30 fps**, installable as a systemd `--user` service.
 
+## 🧩 Second path: `mlir-aie` (IRON)
+
+`iree-amd-aie` (above) compiles **whole graphs**;
+[`Xilinx/mlir-aie`](https://github.com/Xilinx/mlir-aie) (IRON) is the lower-level
+path — you **author NPU kernels directly** and run them via `pyxrt`, and it ships
+real ML `programming_examples`. Both target `npu1` and **share the Peano backend
+you already built**, so it's cheap to add. Full guide → **[docs/MLIR-AIE.md](docs/MLIR-AIE.md)**.
+
+```bash
+./scripts/setup-mlir-aie.sh                 # mlir_aie wheel + py3.14 venv + reuse your Peano
+./scripts/run-mlir-example.sh ml/conv2d     # build for npu1 + run ON THE NPU (pyxrt)
+./examples/mlir-aie/relu_add/run.sh         # a custom hand-written fused kernel
+```
+
+Verified **on the NPU** (XDNA1, `run_py` / `pyxrt`, output vs a torch/numpy golden):
+
+| Example | Kind | NPU time |
+|---|---|--:|
+| `basic/passthrough_kernel` | DMA passthrough | ✓ |
+| `basic/vector_scalar_mul` | vector × scalar | ✓ |
+| `ml/conv2d` | INT8 3×3 conv | ~0.9 ms |
+| `ml/conv2d_fused_relu` | conv + ReLU fused | ~0.8 ms |
+| `ml/bottleneck` | ResNet bottleneck block | ~2.8 ms |
+| `ml/resnet/layers_conv2_x` | ResNet conv2_x layers | ~5.1 ms |
+| `ml/magika` | Google's file-type model (bf16) | ~0.9 ms |
+| [`examples/mlir-aie/relu_add`](examples/mlir-aie/relu_add/) | **custom** fused `relu(a+b)` kernel | ~0.37 ms |
+
+`basic/matrix_multiplication` compiles to an xclbin (its `run` host is C++ — needs
+`libxrt-dev`); `ml/mobilenet` is XDNA2-scale (wants > 4 columns). Details and the
+author-your-own-kernel walkthrough are in **[docs/MLIR-AIE.md](docs/MLIR-AIE.md)**.
+
 ## 🪤 The gotchas (why a naive build/run fails)
 
 Full detail in **[docs/GOTCHAS.md](docs/GOTCHAS.md)**. The short list:

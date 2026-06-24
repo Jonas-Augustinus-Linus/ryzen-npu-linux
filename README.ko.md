@@ -98,6 +98,39 @@ BENCH=1 ./scripts/run-matmul.sh bf16 # + benchmark
 | [`scripts/build.sh`](scripts/build.sh) | `iree-amd-aie`를 클론하고, 모든 워크어라운드를 적용해 빌드한다. |
 | [`scripts/run-matmul.sh`](scripts/run-matmul.sh) | NPU에서 `i32`/`bf16` matmul을 컴파일·실행한다. 바로 그 레시피. |
 
+## 🧩 두 번째 경로: `mlir-aie` (IRON)
+
+`iree-amd-aie`(위)는 **그래프 전체**를 컴파일한다;
+[`Xilinx/mlir-aie`](https://github.com/Xilinx/mlir-aie)(IRON)는 더 낮은 레벨의
+경로다 — 여기서는 **NPU 커널을 직접 작성**하고 `pyxrt`로 실행하며, 실제 ML
+`programming_examples`를 함께 제공한다. 둘 다 `npu1`을 타깃하며 **이미 빌드한
+Peano 백엔드를 공유**하므로, 추가하는 비용이 적다. 전체 가이드 →
+**[docs/MLIR-AIE.ko.md](docs/MLIR-AIE.ko.md)**.
+
+```bash
+./scripts/setup-mlir-aie.sh                 # mlir_aie wheel + py3.14 venv + reuse your Peano
+./scripts/run-mlir-example.sh ml/conv2d     # build for npu1 + run ON THE NPU (pyxrt)
+./examples/mlir-aie/relu_add/run.sh         # a custom hand-written fused kernel
+```
+
+**NPU에서** 검증됨(XDNA1, `run_py` / `pyxrt`, 출력은 torch/numpy 골든값과 대조):
+
+| 예제 | 종류 | NPU 시간 |
+|---|---|--:|
+| `basic/passthrough_kernel` | DMA 패스스루 | ✓ |
+| `basic/vector_scalar_mul` | 벡터 × 스칼라 | ✓ |
+| `ml/conv2d` | INT8 3×3 conv | ~0.9 ms |
+| `ml/conv2d_fused_relu` | conv + ReLU 융합 | ~0.8 ms |
+| `ml/bottleneck` | ResNet bottleneck 블록 | ~2.8 ms |
+| `ml/resnet/layers_conv2_x` | ResNet conv2_x 레이어 | ~5.1 ms |
+| `ml/magika` | Google의 파일 유형 모델 (bf16) | ~0.9 ms |
+| [`examples/mlir-aie/relu_add`](examples/mlir-aie/relu_add/) | **커스텀** 융합 `relu(a+b)` 커널 | ~0.37 ms |
+
+`basic/matrix_multiplication`은 xclbin으로 컴파일된다(그 `run` 호스트는 C++이라
+`libxrt-dev`가 필요하다); `ml/mobilenet`은 XDNA2 규모다(4 컬럼보다 많은 것을
+원한다). 자세한 내용과 커널 직접 작성 워크스루는
+**[docs/MLIR-AIE.ko.md](docs/MLIR-AIE.ko.md)**에 있다.
+
 ## 🪤 Gotcha들 (순진하게 빌드/실행하면 왜 실패하는가)
 
 자세한 내용은 **[docs/GOTCHAS.ko.md](docs/GOTCHAS.ko.md)**에 있다. 요약 목록:

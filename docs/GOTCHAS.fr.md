@@ -141,3 +141,88 @@ que le module en attend 4 → incohérence → blocage.
   topologie et l'énumération des périphériques ont tous deux fonctionné du premier coup.
 - **Python 3.13/3.14 sont trop récents** pour les dépendances de build d'IREE — utilisez un
   3.12 isolé (les scripts utilisent `uv`).
+
+---
+
+# Voie mlir-aie (IRON) — pièges distincts
+
+La seconde voie — [`Xilinx/mlir-aie`](https://github.com/Xilinx/mlir-aie) via le
+wheel `mlir_aie` (voir [MLIR-AIE.md](MLIR-AIE.md)) — a ses propres pièges, différents
+du build iree-amd-aie ci-dessus. `scripts/setup-mlir-aie.sh` et
+`scripts/mlir-aie-env.sh` gèrent tous ces points ; voici ce qu'ils contournent.
+
+## M1. Utilisez Python **3.14** ici — l'inverse du build iree
+
+Le build iree-amd-aie veut **3.12** (note ci-dessus). Les wheels `mlir_aie` prennent en charge
+3.11–3.14, et le seul moyen d'utiliser le `pyxrt` empaqueté d'Ubuntu (depuis `python3-xrt`,
+compilé en `pyxrt.cpython-314-*.so`) est un venv **3.14** — un venv 3.12 ne peut tout simplement pas
+importer ce `pyxrt`. Les deux voies utilisent donc délibérément des venvs Python différents.
+
+## M2. Exposez `pyxrt` dans le venv
+
+`make run_py` fait `import pyxrt`. Le paquet Debian le dépose à
+`/usr/lib/python3/dist-packages/pyxrt.cpython-314-*.so`. Liez symboliquement **ce seul fichier**
+dans les `site-packages` du venv — un venv propre, **pas** `--system-site-packages`
+(qui entraînerait le reste du site système et risquerait de masquer les deps du wheel) :
+
+```bash
+ln -sf /usr/lib/python3/dist-packages/pyxrt.cpython-314-*.so "$VENV/lib/python3.14/site-packages/"
+```
+
+## M3. ⚠️ Sourcez `env_setup.sh` SANS pipe
+
+```
+error: unknown target triple 'aie2-none-unknown-elf'
+make: *** [Makefile:37: build/passThrough.cc.o] Error 1
+```
+
+Le Makefile a compilé le noyau AIE avec le `/bin/clang++` **système** (qui n'a
+aucune cible `aie2`) au lieu du `clang++` de Peano. Cause : `PEANO_INSTALL_DIR` était
+vide. Cause de *cela* :
+
+```bash
+source utils/env_setup.sh "$MLIR_AIE" "$PEANO" | tail   # WRONG
+```
+
+Un pipe exécute le côté gauche dans un **sous-shell**, donc chaque `export` de `env_setup.sh`
+(`PEANO_INSTALL_DIR`, `MLIR_AIE_INSTALL_DIR`, `NPU2`) est jeté au moment où le
+sous-shell se termine. **Redirigez, ne pipez pas :**
+
+```bash
+source utils/env_setup.sh "$MLIR_AIE" "$PEANO" >/tmp/env.log 2>&1   # RIGHT
+```
+
+(De plus : `env_setup.sh` n'est pas écrit pour être sûr sous `set -e`/`set -u` —
+le sourcer sous `set -euo pipefail` avorte silencieusement. `scripts/mlir-aie-env.sh` relâche et
+restaure ces drapeaux autour du source.)
+
+## M4. `make run_py` (pyxrt) vs `make run` (hôte C++ + libxrt-dev)
+
+Beaucoup d'exemples livrent **à la fois** un hôte C++ (`test.cpp` → `make run`) et un hôte Python
+(`test.py` → `make run_py`). L'hôte C++ a besoin des **en-têtes de développement** XRT
+(`libxrt-dev`), que les paquets de runtime (`libxrt-utils-npu`, `python3-xrt`) n'installent
+**pas**. Préférez `run_py`. Pour les exemples uniquement en C++ (matrix_multiplication,
+vision, relu, softmax) : `sudo apt install libxrt-dev`.
+
+## M5. Réutilisez le Peano que vous avez déjà compilé
+
+Ne re-téléchargez pas `llvm-aie`. Passez le Peano d'iree-amd-aie comme 2ᵉ argument
+d'`env_setup.sh` pour qu'il saute son auto-installation :
+
+```bash
+source utils/env_setup.sh "$SITE/mlir_aie" "$HOME/src/iree-amd-aie/llvm-aie"
+```
+
+Il prend en charge `aie` / `aie2` / `aie2p`, donc le même Peano sert les deux voies.
+
+## M6. Les designs pour réseau entier exigent plus que les 4 colonnes de Phoenix
+
+```
+RuntimeError: DRM_IOCTL_AMDXDNA_CREATE_HWCTX IOCTL failed (err=-22): Invalid argument
+```
+
+`ml/mobilenet` **se compile** mais échoue à la création du `hw_context` : le design
+pour tableau entier (whole-array) demande plus de colonnes que Phoenix n'en expose (**4** — les mêmes 4 du piège
+#6 ci-dessus). Les briques de base isolées (`conv2d`, `bottleneck`, `resnet/layers_conv2_x`)
+et `magika` tiennent dans 4 colonnes et s'exécutent ; le réseau complet est du territoire XDNA2
+(Strix, 8 colonnes).

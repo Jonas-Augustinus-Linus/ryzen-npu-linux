@@ -99,6 +99,37 @@ BENCH=1 ./scripts/run-matmul.sh bf16 # + benchmark
 | [`scripts/build.sh`](scripts/build.sh) | Klont + baut `iree-amd-aie` mit allen angewendeten Workarounds. |
 | [`scripts/run-matmul.sh`](scripts/run-matmul.sh) | Kompiliert + führt einen `i32`-/`bf16`-Matmul auf der NPU aus. Das Rezept. |
 
+## 🧩 Zweiter Weg: `mlir-aie` (IRON)
+
+`iree-amd-aie` (oben) kompiliert **ganze Graphen**;
+[`Xilinx/mlir-aie`](https://github.com/Xilinx/mlir-aie) (IRON) ist der hardwarenähere
+Weg — du **verfasst NPU-Kernels direkt** und führst sie via `pyxrt` aus, und er liefert
+echte ML-`programming_examples` mit. Beide zielen auf `npu1` und **teilen sich das Peano-Backend,
+das du bereits gebaut hast**, also ist er günstig hinzuzufügen. Vollständiger Leitfaden → **[docs/MLIR-AIE.de.md](docs/MLIR-AIE.de.md)**.
+
+```bash
+./scripts/setup-mlir-aie.sh                 # mlir_aie wheel + py3.14 venv + reuse your Peano
+./scripts/run-mlir-example.sh ml/conv2d     # build for npu1 + run ON THE NPU (pyxrt)
+./examples/mlir-aie/relu_add/run.sh         # a custom hand-written fused kernel
+```
+
+Verifiziert **auf der NPU** (XDNA1, `run_py` / `pyxrt`, Ausgabe gegen einen Torch-/Numpy-Goldwert):
+
+| Beispiel | Art | NPU-Zeit |
+|---|---|--:|
+| `basic/passthrough_kernel` | DMA-Durchleitung | ✓ |
+| `basic/vector_scalar_mul` | Vektor × Skalar | ✓ |
+| `ml/conv2d` | INT8-3×3-conv | ~0,9 ms |
+| `ml/conv2d_fused_relu` | conv + ReLU fusioniert | ~0,8 ms |
+| `ml/bottleneck` | ResNet-Bottleneck-Block | ~2,8 ms |
+| `ml/resnet/layers_conv2_x` | ResNet-conv2_x-Schichten | ~5,1 ms |
+| `ml/magika` | Googles Dateityp-Modell (bf16) | ~0,9 ms |
+| [`examples/mlir-aie/relu_add`](examples/mlir-aie/relu_add/) | **eigener** fusionierter `relu(a+b)`-Kernel | ~0,37 ms |
+
+`basic/matrix_multiplication` kompiliert zu einer xclbin (sein `run`-Host ist C++ — braucht
+`libxrt-dev`); `ml/mobilenet` ist XDNA2-Größenordnung (will > 4 Spalten). Details und die
+Anleitung zum Schreiben des eigenen Kernels stehen in **[docs/MLIR-AIE.de.md](docs/MLIR-AIE.de.md)**.
+
 ## 🪤 Die Stolpersteine (warum ein naiver Build/Lauf scheitert)
 
 Vollständige Details in **[docs/GOTCHAS.de.md](docs/GOTCHAS.de.md)**. Die Kurzliste:

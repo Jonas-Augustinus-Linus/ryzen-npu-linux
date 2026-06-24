@@ -102,6 +102,37 @@ BENCH=1 ./scripts/run-matmul.sh bf16 # + benchmark
 | [`scripts/build.sh`](scripts/build.sh) | Clone + compile `iree-amd-aie` avec tous les contournements appliqués. |
 | [`scripts/run-matmul.sh`](scripts/run-matmul.sh) | Compile + exécute un matmul `i32`/`bf16` sur le NPU. La recette. |
 
+## 🧩 Seconde voie : `mlir-aie` (IRON)
+
+`iree-amd-aie` (ci-dessus) compile des **graphes entiers** ;
+[`Xilinx/mlir-aie`](https://github.com/Xilinx/mlir-aie) (IRON) est la voie de plus
+bas niveau — vous **écrivez directement des noyaux NPU** et les exécutez via `pyxrt`, et elle
+livre de véritables `programming_examples` ML. Les deux ciblent `npu1` et **partagent le backend Peano
+que vous avez déjà compilé**, donc l'ajout est peu coûteux. Guide complet → **[docs/MLIR-AIE.fr.md](docs/MLIR-AIE.fr.md)**.
+
+```bash
+./scripts/setup-mlir-aie.sh                 # mlir_aie wheel + py3.14 venv + reuse your Peano
+./scripts/run-mlir-example.sh ml/conv2d     # build for npu1 + run ON THE NPU (pyxrt)
+./examples/mlir-aie/relu_add/run.sh         # a custom hand-written fused kernel
+```
+
+Vérifié **sur le NPU** (XDNA1, `run_py` / `pyxrt`, sortie vs une référence (golden) torch/numpy) :
+
+| Example | Kind | NPU time |
+|---|---|--:|
+| `basic/passthrough_kernel` | DMA passthrough | ✓ |
+| `basic/vector_scalar_mul` | vector × scalar | ✓ |
+| `ml/conv2d` | INT8 3×3 conv | ~0.9 ms |
+| `ml/conv2d_fused_relu` | conv + ReLU fused | ~0.8 ms |
+| `ml/bottleneck` | ResNet bottleneck block | ~2.8 ms |
+| `ml/resnet/layers_conv2_x` | ResNet conv2_x layers | ~5.1 ms |
+| `ml/magika` | Google's file-type model (bf16) | ~0.9 ms |
+| [`examples/mlir-aie/relu_add`](examples/mlir-aie/relu_add/) | **custom** fused `relu(a+b)` kernel | ~0.37 ms |
+
+`basic/matrix_multiplication` se compile en un xclbin (son hôte `run` est en C++ — a besoin de
+`libxrt-dev`) ; `ml/mobilenet` est à l'échelle XDNA2 (exige > 4 colonnes). Les détails et le
+guide pas-à-pas pour écrire votre propre noyau sont dans **[docs/MLIR-AIE.fr.md](docs/MLIR-AIE.fr.md)**.
+
 ## 🪤 Les pièges (pourquoi une compilation/exécution naïve échoue)
 
 Tous les détails dans **[docs/GOTCHAS.fr.md](docs/GOTCHAS.fr.md)**. La liste courte :
