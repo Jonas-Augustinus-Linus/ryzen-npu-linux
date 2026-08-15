@@ -86,8 +86,47 @@ RyzenAI-npu4
 
 `RyzenAI-npu4` bestätigt die Namens-Decoder-Zeile unten auf echter Hardware: Strix
 Point ist für XRT `npu4`. Um bis *hierher* zu kommen, war kein Source-Build nötig —
-Aktivierung auf XDNA2/Ubuntu 26.04 ist Konfiguration, keine Kompilierung. Compute ist
-der nächste Schritt (siehe *Wohin es als Nächstes geht*).
+Aktivierung auf XDNA2/Ubuntu 26.04 ist Konfiguration, keine Kompilierung.
+
+## ✅ Compute: verifiziert auf der XDNA2-NPU (dieselbe Maschine, 2026-08-15)
+
+Der IRON-Track lief noch am selben Tag, an dem die Aktivierung landete —
+`setup-mlir-aie.sh` unverändert, mlir-aie **1.4.1** (cp314-Wheel), Peano-Wheel,
+Ubuntus `pyxrt`. Vollständige Tabellen in [MLIR-AIE.de.md](MLIR-AIE.de.md); die
+Schlagzeilen:
+
+- **GEMM auf allen 8 Spalten / 32 Tiles** (`whole_array`, 2048³): **6.65 TOPS**
+  i8 und **4.64 TFLOPS** bf16-via-bfp16 — die innere Tile-Größe allein war
+  3.4× wert (32³ → 64³-Tiles).
+- **AIE2P will bfp16**: bf16-MAC ist auf XDNA2 ~¼-Rate-*Emulation* (auf
+  XDNA1 nativ); `--emulate-bf16-mmul-with-bfp16 1` ist Gratis-Tempo. Die
+  nativen bfp16ebs8-Entwürfe kompilieren hier mit Peano; sie auszuführen
+  braucht `libxrt-dev` (C++-Hosts).
+- **`ml/mobilenet` — der Entwurf, der auf den 4 Spalten von Phoenix an
+  `CREATE_HWCTX` scheitert — läuft durchgängig** auf dem 8-Spalten-Array:
+  ~176 ms/Inferenz.
+- Die LLM-Blöcke bestehen alle auf `npu2`: softmax, RoPE, SwiGLU, RMSNorm,
+  Matmul+Aktivierungs-Epilog.
+- Unser eigener `relu(a+b)`-Kernel, auf die IRON-1.4.x-API portiert, skaliert
+  **8.0× auf 8 Spalten** (`transform_parallel_binary`), 11.2 GB/s effektiv.
+
+### ✅ IREE: Korrektheit gegen CPU-Referenz auf `npu4` (separater Track)
+
+Der Upstream-IREE-CPU-vs-NPU-Harness lief ebenfalls auf dieser Hardware, mit
+`--target_device=npu4`, 4 Core-Zeilen, 8 Core-Spalten und Peano 22, Commit
+`4a1adefa`:
+
+| IREE-Matmul | Verglichene Werte | Ergebnis CPU gegen NPU |
+|---|---:|---|
+| bf16→f32, 64³ | 4.096 | exakt gleich; maximaler absoluter/relativer Fehler 0 |
+| bf16→f32, 512³ | 262.144 | exakt gleich; maximaler absoluter/relativer Fehler 0 |
+| i8→i32, 512³ | 262.144 | 0 Abweichungen |
+
+Dies sind Korrektheitsergebnisse für bf16/i8 mit `iree-amd-aie`, nicht der
+native bfp16ebs8-Pfad von `mlir-aie`. Dessen separater Peano-21-Akkumulations-
+Sweep bestand bei K=1216 und scheiterte erstmals bei K=1280; diese IREE-Tabelle
+ändert jene Grenze nicht. Diese Korrektheitsläufe sind außerdem **keine
+Leistungsmessungen**.
 
 ### Skript-Bugs, gefunden beim Richten der XDNA1-Werkzeuge auf XDNA2 (behoben)
 
@@ -139,11 +178,11 @@ der nächste Schritt (siehe *Wohin es als Nächstes geht*).
 |---|---|---|
 | `scripts/check-npu.sh` | ✅ funktioniert (dieser Commit) | XDNA2-PCI-String + Generationsbericht; [6] SIGPIPE-Fix auf der Erfolgsseite; [5] diagnostiziert jetzt die pam-vs-systemd-Spaltung beim memlock |
 | `scripts/enable-npu.sh` | ✅ funktioniert (in diesem Commit erweitert) | dieselben 3 Blocker; Ubuntu 26.04 installiert die Pakete vor — aber auf einem systemd-Desktop braucht der memlock-Fix ein `user@.service`-Drop-in zusätzlich zu limits.d ([Stolperstein #0](GOTCHAS.de.md)) |
-| `scripts/build.sh` (iree-amd-aie) | 🔎 sollte portieren | `npu4` ist ein unterstütztes Target; Projekt aktiv (softmax-ukernel für Peano npu4, ERT_CMD_CHAIN-Batching). Der Commit-Lockstep-Stolperstein (fixierter xdna-driver) bleibt |
-| `scripts/run-matmul.sh` | 🔎 sollte portieren | Target `npu1_4col` → `npu4`; die `amdxdna`-HAL-Flags bleiben |
-| `tools/npu-runner` | 🔎 sollte portieren | IREE-C-API unverändert — gegen den npu4-Build neu kompilieren |
+| `scripts/build.sh` (iree-amd-aie) | ✅ auf Hardware verifiziert | Source-Build + Installation auf Strix abgeschlossen; begrenzte Parallelität verhindert den beobachteten OOM, die Abschlussprüfung verlangt sowohl `npu1_4col` als auch `npu4`; getestet mit Peano 22 `4a1adefa` |
+| `scripts/run-matmul.sh` | ✅ auf Hardware verifiziert | erkennt das 4×8-Grid und wählt `npu4`; i32 128³ und bf16 512³ kompilieren und laufen korrekt, der XDNA1-Pfad bleibt erhalten |
+| `tools/npu-runner` | ✅ auf Hardware verifiziert | C-API-Grid-Autoerkennung löst 4×8 auf; nativer Runner und ctypes/Python-Pfad verifizierten alle 16.384 i32-Ausgabewerte |
 | `tools/npu-trim` | ✅ Konzept intakt | die Op-Abdeckungs-Grenze verschiebt sich, der Ansatz ist identisch; weiterhin kein Vendor-EP unter Linux, der es ersetzen würde |
-| `mlir-aie`-(IRON-)Track | 🔎 **stärkster Weg** | IRON [1.4.x](https://github.com/Xilinx/mlir-aie/releases): Strix First-Class (`npu2`), **Peano ist jetzt das Standard-Backend** (wir haben es ohnehin gebaut), **HRX** = XRT-freie Host-Runtime-Option; [amd/IRON](https://github.com/amd/IRON) liefert eine vorgebaute Op-Bibliothek (GEMM, GEMV, MHA, GQA, RMSNorm, RoPE, softmax, dequant) als pip-Wheels aus |
+| `mlir-aie`-(IRON-)Track | ✅ **verifiziert — der stärkste Weg** (dieser Commit) | IRON [1.4.1](https://github.com/Xilinx/mlir-aie/releases): Strix First-Class (`npu2`), **Peano Standard**, `aiecc` jetzt ein C++-Binary, Beispiele lit-getrieben; unsere Skripte + der eigene Kernel portiert (Annotations-API-Bruch — [GOTCHAS](GOTCHAS.de.md)); Zahlen in [MLIR-AIE.de.md](MLIR-AIE.de.md). Korrektur gegenüber der früheren Recherche: mlir-aie 1.4.1 liefert **sehr wohl ein optionales HRX-Python-Backend**; dafür wird eine extern bereitgestellte `libhrx`-Bibliothek benötigt. Der Runtime-Dispatch der `relu_add`-Entwürfe dieses Repos mit einem Worker und mit 8 Spalten wurde hier auf echter Hardware mit bestandener Korrektheitsprüfung verifiziert. Die Artefakte wurden weiterhin mit der vorhandenen XRT-Toolchain erzeugt; dies ist daher keine Behauptung eines vollständig XRT-freien Build+Run-Pfads. [amd/IRON](https://github.com/amd/IRON) liefert weiterhin **keine Wheels** aus (nur Source-Install, fixiert auf einen mlir_aie-1.3.5.dev-Snapshot) |
 
 ## 🔎 Das Hardware-Delta, das zählt, wenn du Kernels schreibst
 
@@ -152,10 +191,18 @@ der nächste Schritt (siehe *Wohin es als Nächstes geht*).
   mit firmware-verwaltetem Kontext-Scheduling
   ([Kernel-Docs](https://docs.kernel.org/accel/amdxdna/amdnpu.html)).
 - **Datentyp**: AIE2Ps Schlagzeile ist **bfp16 Block Floating Point** — 8 Werte
-  teilen sich einen 8-Bit-Exponenten, 9 Bytes pro 8 Werte. Die Unterstützung hängt an ~450+
-  hartkodierten `__AIE_ARCH__`-Bedingungen in mlir-aie statt an Feature-Flags —
-  zugleich eine Portierungsfalle und eine benannte Beitragsfläche
-  ([mlir-aie#3390](https://github.com/Xilinx/mlir-aie/discussions/3390)).
+  teilen sich einen 8-Bit-Exponenten, 9 Bytes pro 8 Werte. Mit Peanos aktuellen
+  Nightlies ist das unter dem offenen Stack real: clang liefert die
+  `__builtin_aie2p_*bfp16ebs8/16`-Konvertierungs- und `BFP576_BFP576_ACC2048`-
+  MAC-Builtins mit, und die `ml/block_datatypes`-GEMMs bauen mit Peano (✅
+  auf dieser Maschine kompiliert). Die Kehrseite: **bf16-MAC hat sich
+  verschlechtert** — natives 4×8×4 auf AIE2, ~¼-Rate-Emulation durch den
+  bfp16-Datenpfad auf AIE2P
+  ([mlir-aie#3390](https://github.com/Xilinx/mlir-aie/discussions/3390),
+  [Hello XDNA](https://tnzr.org/xdna/isa.html)). Für bf16 auf npu1 getunte
+  Kernels brauchen für Spitzendurchsatz auf npu2 eine bfp16-Neufassung; das
+  Kernel-C++ ist per `__AIEARCH__` arch-gegated (20 = AIE2, 21 = AIE2P), und
+  Upstream pflegt parallele `aie_kernels/aie2/`- und `aie2p/`-Bäume.
 - **ISA**: weiterhin kein offizielles Handbuch, aber faktisch offen — Peano implementiert sie
   in öffentlichem LLVM, und [Hello XDNA](https://tnzr.org/xdna/isa.html) rekonstruiert
   die XDNA1/XDNA2-ISA mit Latenzen pro Instruktion.
@@ -178,20 +225,47 @@ der nächste Schritt (siehe *Wohin es als Nächstes geht*).
 
 ## Wohin es als Nächstes geht
 
-1. **Die Matmul-Rezepte + `npu-runner` auf `npu4` portieren** und XDNA1-vs-
-   XDNA2-Zahlen nebeneinander veröffentlichen (dieselben Tabellen wie im README).
-2. **IRON-GEMM/GQA auf dem 4×8-Array reproduzieren** (mlir-aie 1.4.x; HRX ausprobieren,
-   um die XRT-Abhängigkeit loszuwerden).
-3. **Quantisiertes Prefill-GEMM** — W4A16-Kernels (und bfp16-ausnutzende) via den
-   IRON-Flow; [TileFuse](https://arxiv.org/abs/2606.11357) hat das Rezept
-   veröffentlicht (bis zu +281% GEMV gegenüber Full-Precision-NPU-Baselines). Die
-   [amd/IRON](https://github.com/amd/IRON)-Bibliothek hat dequant, aber **kein
-   Q4/MXFP4-GEMM** — diese Lücke ist real, und llama.cpp hat eine offene, unbeanspruchte
-   ggml-xdna-Backend-Anfrage
-   ([#21725](https://github.com/ggml-org/llama.cpp/issues/21725)) als
-   maintainer-sichtbare Landezone.
+1. ~~IRON-GEMM auf dem 4×8-Array reproduzieren~~ — **✅ erledigt** (mlir-aie 1.4.1,
+   Whole-Array-GEMM mit 6.65 TOPS i8 / 4.64 TFLOPS bf16-bfp16, LLM-Blöcke,
+   vollständiges MobileNet; [MLIR-AIE.de.md](MLIR-AIE.de.md)). GQA/MHA: die
+   [amd/IRON](https://github.com/amd/IRON)-Op-Bibliothek hat sie **nur für aie2p**
+   (nur head-dim 64) — aber sie ist nur per Source-Install nutzbar, auf einen
+   mlir_aie-1.3.5.dev-Snapshot fixiert, und ihre einzige Quant-Op ist *dequant*
+   (Q4NX/AWQ → bf16). Keine Wheels, kein fusioniertes W4A16.
+2. ~~Die iree-amd-aie-Matmul-Rezepte + `npu-runner` auf `npu4` portieren und
+   die Korrektheit gegen die CPU-Referenz abschließen~~ — **✅ erledigt**. Build,
+   generationserkennendes Matmul-Skript, persistenter C-API-Runner und Python-
+   Wrapper liefen alle auf dieser Strix-Maschine; der Upstream-Harness lieferte
+   die obige Exact-Match-Tabelle. Ein kontrollierter XDNA1-vs-XDNA2-
+   Leistungsvergleich bleibt separate Arbeit; aus diesen Korrektheitsläufen
+   wird keine Geschwindigkeitsaussage abgeleitet.
+3. **Quantisiertes Prefill-GEMM** — die Beitragsfläche, jetzt präzise kartiert:
+   [TileFuse](https://arxiv.org/abs/2606.11357) hat das W4A16-Rezept *samt Code*
+   veröffentlicht
+   ([glassescrab/mlir-aie](https://github.com/glassescrab/mlir-aie/tree/feature/update-mix-mm-int4-verification),
+   Fork ~13 Monate hinter main, **chess-first** mit Peano optional; AWQ
+   group-128, k-Tile = Gruppengröße, dequant in-tile fusioniert mit einem
+   Weight-stationary-L1-Cache, 9 TOPS auf Strix Point). Was nirgendwo offen
+   existiert: dieser Kernel auf **aktuellem IRON 1.4.x + nur Peano**, und
+   irgendeine llama.cpp-Integration. [#21725](https://github.com/ggml-org/llama.cpp/issues/21725)
+   ist weiterhin offen und unbeansprucht (das WIP des Autors stockte 2026-04;
+   AMDs eigener aktiver Versuch ist [`ggml-hsa`](https://github.com/ypapadop-amd/ggml/tree/hsa-backend)
+   auf der HSA-/ROCr-Runtime — ein anderer Stack als Ubuntus XRT). Ebenfalls
+   upstream gemessen und einen Diebstahl wert: **64-KB-Puffer-Alignment
+   (SMMU-Page) war ein 10×-Decode-Hebel** in den in #21725 zitierten
+   IRON-Experimenten.
+   **Spike-geprüft auf dieser Maschine (2026-08-15)**: TileFuses fusionierter
+   Dequant+GEMM-Kernel (`mix_int4_ATB.cc`) **kompiliert sauber mit Peano für
+   `aie2p` gegen die mlir-aie-1.4.1-Header** (`-Dbf16_bf16_ONLY`,
+   m64/k128/n64 → `matmul_bf16_bf16`). Damit ist für diese Spezialisierung
+   eine Frontend-Compile-Hürde genommen; die Portierung ist damit **nicht**
+   fertig. IRON/ObjectFifo-Integration, Linken, Platzierung, ABI-Abgleich,
+   hostseitiges Weight-Packing, NPU-Ausführung und numerische Verifikation
+   stehen noch aus. Das gepinnte
+   [`check-w4a16-compile.sh`](../scripts/check-w4a16-compile.sh) hält
+   Quell-Commit, Prüfsummen und die exakten Frontend-Flags fest.
 
-*Status: Seite hinzugefügt am 2026-08-15; Aktivierung am selben Tag auf der obigen
-Strix-Point-Maschine abgeschlossen und verifiziert — `xrt-smi`-Enumeration und ein
-`pyxrt`-Geräte-Open von `RyzenAI-npu4`, nach dem Beheben von
-[Stolperstein #0](GOTCHAS.de.md). Die 🔎-Punkte tragen ihre Quellen inline.*
+*Status: Seite hinzugefügt am 2026-08-15; Aktivierung, IRON-Compute und die
+IREE-`npu4`-Portierung samt Korrektheit gegen die CPU-Referenz wurden am selben
+Tag auf der obigen Strix-Point-Maschine verifiziert. Die 🔎-Punkte tragen ihre
+Quellen inline.*

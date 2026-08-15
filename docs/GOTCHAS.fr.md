@@ -267,16 +267,25 @@ Beaucoup d'exemples livrent **à la fois** un hôte C++ (`test.cpp` → `make ru
 **pas**. Préférez `run_py`. Pour les exemples uniquement en C++ (matrix_multiplication,
 vision, relu, softmax) : `sudo apt install libxrt-dev`.
 
-## M5. Réutilisez le Peano que vous avez déjà compilé
+## M5. Ne réutilisez Peano que si le pin de la version correspond
 
-Ne re-téléchargez pas `llvm-aie`. Passez le Peano d'iree-amd-aie comme 2ᵉ argument
-d'`env_setup.sh` pour qu'il saute son auto-installation :
+La prise en charge de `aie` / `aie2` / `aie2p` ne suffit pas. Chaque version de mlir-aie
+épingle un wheel `llvm-aie` exact dans `utils/peano-requirements.txt`. Le Peano
+d'iree-amd-aie n'est réutilisable que si les métadonnées de version de son wheel **et**
+le commit de build indiqué par `clang --version` correspondent à ce pin.
+`setup-mlir-aie.sh` vérifie les deux. Pour une configuration manuelle, la sélection
+compatible la plus sûre est :
 
 ```bash
-source utils/env_setup.sh "$SITE/mlir_aie" "$HOME/src/iree-amd-aie/llvm-aie"
+python -m pip install --upgrade -r utils/peano-requirements.txt
+SITE="$(python -c 'import site; print(site.getsitepackages()[0])')"
+source utils/env_setup.sh "$SITE/mlir_aie"
 ```
 
-Il prend en charge `aie` / `aie2` / `aie2p`, donc le même Peano sert les deux voies.
+`env_setup.sh` ne fait que configurer l'environnement ; sans second argument, il trouve
+le wheel épinglé dans le venv actif. Ne passez explicitement
+`$HOME/src/iree-amd-aie/llvm-aie` qu'après avoir vérifié la même version exacte et le
+même commit clang—pas simplement parce que ce répertoire existe déjà.
 
 ## M6. Les designs pour réseau entier exigent plus que les 4 colonnes de Phoenix
 
@@ -288,4 +297,94 @@ RuntimeError: DRM_IOCTL_AMDXDNA_CREATE_HWCTX IOCTL failed (err=-22): Invalid arg
 pour tableau entier (whole-array) demande plus de colonnes que Phoenix n'en expose (**4** — les mêmes 4 du piège
 #6 ci-dessus). Les briques de base isolées (`conv2d`, `bottleneck`, `resnet/layers_conv2_x`)
 et `magika` tiennent dans 4 colonnes et s'exécutent ; le réseau complet est du territoire XDNA2
-(Strix, 8 colonnes).
+(Strix, 8 colonnes). *(Confirmé le 2026-08-15 : sur les 8 colonnes de Strix Point,
+le réseau complet s'exécute de bout en bout, ~176 ms/inférence — [XDNA2.md](XDNA2.md).)*
+
+## M7. IRON 1.4.x a cassé la forme d'appel non annotée de `@iron.jit`
+
+Du code écrit pour la 1.3.x comme
+
+```python
+iron.jit(transform_binary)(kernel, a, b, out, tile_size=tile_size)
+```
+
+meurt sur la 1.4.x avec
+
+```
+TypeError: @iron.jit: parameter(s) ['tile_size', 'trace_size'] of 'transform_binary'
+have default values but no In / Out / InOut / CompileTime[T] annotation.
+```
+
+La 1.4.x exige une fonction de design annotée — les tenseurs en `In`/`Out`,
+les scalaires de compilation en paramètres keyword-only `CompileTime[T]` — et
+les helpers `iron.algorithms.*` prennent désormais un **descripteur de type
+numpy** dans le corps du jit au lieu de tenseurs vivants :
+
+```python
+@iron.jit
+def design(a: In, b: In, out: Out, *,
+           num_elements: CompileTime[int], tile_size: CompileTime[int]):
+    tensor_ty = np.ndarray[(num_elements,), np.dtype[np.int32]]
+    return iron.algorithms.transform_binary(kernel, tensor_ty, tile_size=tile_size)
+```
+
+`ExternalFunction` reçoit toujours automatiquement un argument `int` final de
+taille de tuile (`pass_size_to_kernel=True` dans les variantes parallèles). Voir
+`examples/mlir-aie/relu_add/` pour un avant/après complet.
+
+## M8. La mémoire locale au cœur fait 64 Ko — dimensionnez vos tuiles pour les FIFOs, pas pour le calcul
+
+Un design élément par élément binaire a besoin de **6 buffers de tuile** vivants
+dans la mémoire de données d'un seul cœur (3 ObjectFifos × double buffering). À
+`tile_size=4096` en int32, cela fait 6 × 16 Ko = 96 Ko et aiecc échoue au
+placement :
+
+```
+error: 'aie.tile' op Basic sequential allocation also failed.
+note: MemoryMap: (stack) 0x0-0x3FF … in0_cons_buff_1 0x14400-0x183FF …
+```
+
+`tile_size=1024` (6 × 4 Ko + pile) tient avec de la marge. Le même budget explique
+pourquoi le GEMM sur tableau entier accepte des tuiles internes 64³ en i8 mais pas
+en bf16 (des éléments de 2 octets doublent la taille des buffers).
+
+## M9. Les noyaux binaires ne peuvent pas piloter 2 canaux DMA de shim par colonne
+
+`transform_parallel*(…, num_channels=2)` double le débit DDR pour les noyaux
+**unaires** en exécutant un Worker par (colonne, canal). Un noyau **binaire** a
+déjà besoin de deux canaux MM2S de shim par colonne — un par entrée — et le shim
+en a exactement deux, donc `num_channels=2` échoue au placement :
+
+```
+error: no ShimNOCTile has sufficient DMA capacity for 0 input/1 output channels
+```
+
+Gardez `num_channels=1` pour les noyaux à 2 entrées.
+
+## M10. Sur AIE2P (XDNA2), le bf16 est à ¼ de cadence — routez les GEMM bf16 par le bfp16
+
+Le MAC bf16 est natif sur l'AIE2 de XDNA1 mais **émulé via le chemin de données
+bfp16 à ~¼ de la cadence** sur l'AIE2P de XDNA2 ; le mode natif est la virgule
+flottante par blocs bfp16 (8×8×8). Les matmuls de série exposent le contournement
+sous forme de drapeau :
+
+```bash
+python whole_array.py … --dtype_in bf16 --dtype_out f32 --emulate-bf16-mmul-with-bfp16 1
+```
+
+Mesuré ici : +17% à 512³/tuiles 32³, +25% à 2048³ avec des tuiles 64×32×64
+(4.64 contre ~3.7 TFLOPS). Détails : [MLIR-AIE.md](MLIR-AIE.md) → leçons GEMM.
+
+## M11. Le bfp16 natif peut devenir incorrect quand le nombre de tuiles K augmente
+
+Le GEMM bfp natif de `ml/block_datatypes` peut sembler rapide tout en donnant un
+résultat faux. Face à une référence float sur CPU, 512³ et 1024³ passent, tandis
+que 2048³ échoue (291 échantillons sur 1000, erreur relative maximale de 12 %).
+Avec M=N=1024, la frontière observée est K=1216 **PASS** et K=1280 **FAIL**.
+
+L'inspection du source suggère une requantification bfp16 répétée de la sortie
+partielle entre les tuiles K. Cela explique la dépendance à K, mais ne constitue
+pas encore un correctif démontré. Ne publiez un débit bfp natif qu'avec un
+contrôle de référence CPU **PASS**.
+[`check-bfp16-correctness.sh`](../scripts/check-bfp16-correctness.sh) reproduit
+et vérifie cette frontière connue.

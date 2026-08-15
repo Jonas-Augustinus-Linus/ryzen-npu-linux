@@ -1,12 +1,22 @@
 #!/usr/bin/env bash
-# run-mlir-example.sh — build a Xilinx/mlir-aie programming_example for the XDNA1
-# NPU (npu1) and RUN IT on the NPU. Prefers the `run_py` target (pyxrt host; no
-# XRT dev headers needed). For C++-host-only examples, pass `run` (needs libxrt-dev).
+# run-mlir-example.sh — build a Xilinx/mlir-aie programming_example and RUN IT
+# on the NPU (XDNA1 npu1 or XDNA2 npu2 — detected by mlir-aie-env.sh / NPU2).
+#
+# mlir-aie 1.4.x reshaped the examples: most are a single Python design run
+# directly (@iron.jit compiles on first call, device auto-detected); a few
+# (ml/conv2d, ml/mobilenet, matmul C++ hosts) still use a Makefile. This
+# script picks the right invocation:
+#   1. Makefile with a run_py target  -> make devicename=<dev> + run_py
+#   2. <dirname>.py                   -> python <dirname>.py [args...]
+#   3. Makefile with a run target     -> make devicename=<dev> run  (C++ host:
+#                                        needs libxrt-dev)
 #
 # Usage:
+#   ./scripts/run-mlir-example.sh basic/passthrough_kernel
+#   ./scripts/run-mlir-example.sh ml/softmax
 #   ./scripts/run-mlir-example.sh ml/conv2d
-#   ./scripts/run-mlir-example.sh basic/passthrough_kernel run_py
-#   ./scripts/run-mlir-example.sh basic/matrix_multiplication/whole_array run   # C++ host: libxrt-dev
+#   ./scripts/run-mlir-example.sh basic/matrix_multiplication/whole_array \
+#       -M 512 -K 512 -N 512 -m 32 -k 32 -n 32 --n-aie-cols 8
 #
 # Env overrides: MLIR_AIE_DIR (default ~/src/mlir-aie)
 set -euo pipefail
@@ -18,17 +28,32 @@ MLIR_AIE_DIR="${MLIR_AIE_DIR:-$HOME/src/mlir-aie}"
   exit 1
 }
 
-# shellcheck disable=SC1091
-source "$HERE/mlir-aie-env.sh"
-
-REL="${1:?usage: run-mlir-example.sh <programming_examples/rel/path> [make-target]}"
-TGT="${2:-run_py}"
+REL="${1:?usage: run-mlir-example.sh <programming_examples/rel/path> [design args...]}"
+shift
 EX="$MLIR_AIE_DIR/programming_examples/$REL"
 [ -d "$EX" ] || { echo "no such example: $EX" >&2; exit 1; }
 
-echo "=== build $REL  (devicename=npu / npu1, NPU2=${NPU2:-?}) ==="
-make -C "$EX" clean >/dev/null 2>&1 || true
-make -C "$EX"
+# shellcheck disable=SC1091
+source "$HERE/mlir-aie-env.sh"
+DEV="$([ "${NPU2:-0}" = "1" ] && echo npu2 || echo npu)"
 
-echo "=== run ($TGT) ON THE NPU ==="
-make -C "$EX" "$TGT"
+PY="$EX/$(basename "$EX").py"
+cd "$EX"
+if [ -f Makefile ] && grep -qE '^run_py:' Makefile; then
+  echo "=== make run_py (devicename=$DEV) ON THE NPU ==="
+  # run_py declares its build prerequisites. In targets such as MobileNet,
+  # default `all` also includes run_py, so a separate default make runs twice.
+  make clean >/dev/null 2>&1 || true
+  make devicename="$DEV" "$@" run_py
+elif [ -f "$PY" ]; then
+  echo "=== python $(basename "$PY") $* (device auto-detected: $DEV) ==="
+  python "$PY" "$@"
+elif [ -f Makefile ]; then
+  echo "=== make (devicename=$DEV) + run ON THE NPU (C++ host: needs libxrt-dev) ==="
+  make clean >/dev/null 2>&1 || true
+  make devicename="$DEV" "$@"
+  make devicename="$DEV" "$@" run
+else
+  echo "don't know how to run $REL (no run_py Makefile target, no $(basename "$PY"))" >&2
+  exit 1
+fi

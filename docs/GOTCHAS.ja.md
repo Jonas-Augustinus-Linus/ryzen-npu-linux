@@ -267,16 +267,24 @@ source utils/env_setup.sh "$MLIR_AIE" "$PEANO" >/tmp/env.log 2>&1   # RIGHT
 `run_py` を優先してください。C++ 専用の例（matrix_multiplication、vision、relu、softmax）には:
 `sudo apt install libxrt-dev`。
 
-## M5. すでにビルドした Peano を再利用する
+## M5. リリースのピンが一致する場合だけ Peano を再利用する
 
-`llvm-aie` を再ダウンロードしないでください。iree-amd-aie の Peano を `env_setup.sh` の
-第2引数として渡すと、自動インストールがスキップされます:
+`aie` / `aie2` / `aie2p` をサポートしているだけでは不十分です。各 mlir-aie リリースは
+`utils/peano-requirements.txt` で正確な `llvm-aie` wheel をピン留めしています。
+iree-amd-aie の Peano を再利用できるのは、wheel のバージョンメタデータと
+`clang --version` が示す **ビルドコミット**の両方がそのピンと一致する場合だけです。
+`setup-mlir-aie.sh` は両方を検査します。手動セットアップで最も安全に互換版を選ぶには:
 
 ```bash
-source utils/env_setup.sh "$SITE/mlir_aie" "$HOME/src/iree-amd-aie/llvm-aie"
+python -m pip install --upgrade -r utils/peano-requirements.txt
+SITE="$(python -c 'import site; print(site.getsitepackages()[0])')"
+source utils/env_setup.sh "$SITE/mlir_aie"
 ```
 
-これは `aie` / `aie2` / `aie2p` をサポートするため、同じ Peano が両トラックに使えます。
+`env_setup.sh` は環境を設定するだけです。第2引数を省略すると、アクティブな venv にある
+ピン留め済み wheel を検出します。`$HOME/src/iree-amd-aie/llvm-aie` を明示的に渡すのは、
+同じ正確なバージョンと clang コミットを確認した後だけにしてください。すでに存在するという
+理由だけで選んではいけません。
 
 ## M6. ネットワーク全体の設計は Phoenix の 4 カラムを超えて要求する
 
@@ -288,3 +296,94 @@ RuntimeError: DRM_IOCTL_AMDXDNA_CREATE_HWCTX IOCTL failed (err=-22): Invalid arg
 設計が Phoenix の公開するカラム数（**4** — 上記の落とし穴 #6 と同じ 4）を超えて要求します。
 単一のビルディングブロック（`conv2d`、`bottleneck`、`resnet/layers_conv2_x`）と `magika`
 は 4 カラムに収まって動作します。ネットワーク全体は XDNA2（Strix、8 カラム）の領域です。
+*（2026-08-15 に確認: Strix Point の 8 カラムではネットワーク全体がエンドツーエンドで
+動作します。推論あたり ~176 ms — [XDNA2.md](XDNA2.md)。）*
+
+## M7. IRON 1.4.x はアノテーション無しの `@iron.jit` 呼び出し形式を壊した
+
+1.3.x に対して書かれた次のようなコードは
+
+```python
+iron.jit(transform_binary)(kernel, a, b, out, tile_size=tile_size)
+```
+
+1.4.x では次のエラーで死にます
+
+```
+TypeError: @iron.jit: parameter(s) ['tile_size', 'trace_size'] of 'transform_binary'
+have default values but no In / Out / InOut / CompileTime[T] annotation.
+```
+
+1.4.x はアノテーション付きの設計関数を要求します — テンソルは `In`/`Out` として、
+コンパイル時スカラーはキーワード専用パラメータの `CompileTime[T]` として — さらに
+`iron.algorithms.*` ヘルパーは、生きたテンソルの代わりに jit 本体の中で
+**numpy 型記述子** を受け取るようになりました:
+
+```python
+@iron.jit
+def design(a: In, b: In, out: Out, *,
+           num_elements: CompileTime[int], tile_size: CompileTime[int]):
+    tensor_ty = np.ndarray[(num_elements,), np.dtype[np.int32]]
+    return iron.algorithms.transform_binary(kernel, tensor_ty, tile_size=tile_size)
+```
+
+`ExternalFunction` は依然として、末尾の `int` タイルサイズ引数を自動で受け取ります
+（parallel 系では `pass_size_to_kernel=True`）。完全なビフォー/アフターは
+`examples/mlir-aie/relu_add/` を参照してください。
+
+## M8. コアローカルメモリは 64 KB — タイルサイズは計算ではなく FIFO に合わせて決める
+
+バイナリ（2 入力）の要素ごとの設計は、1 つのコアのデータメモリに **6 個のタイル
+バッファ** を同時に必要とします（3 本の ObjectFifo × ダブルバッファリング）。
+`tile_size=4096` の int32 ではこれが 6 × 16 KB = 96 KB になり、aiecc は配置に
+失敗します:
+
+```
+error: 'aie.tile' op Basic sequential allocation also failed.
+note: MemoryMap: (stack) 0x0-0x3FF … in0_cons_buff_1 0x14400-0x183FF …
+```
+
+`tile_size=1024`（6 × 4 KB + スタック）なら余裕を持って収まります。同じ予算で、
+アレイ全体の GEMM が 64³ の内側タイルを i8 では受け付けるのに bf16 では受け付けない
+理由も説明できます（2 バイト要素はバッファサイズを倍にします）。
+
+## M9. バイナリカーネルはカラムあたり 2 本の shim DMA チャネルを駆動できない
+
+`transform_parallel*(…, num_channels=2)` は、（カラム, チャネル）ごとに 1 つの
+Worker を走らせることで、**単項（unary）** カーネルの DDR スループットを倍にします。
+**バイナリ** カーネルは、入力ごとに 1 本ずつ、すでにカラムあたり 2 本の MM2S shim
+チャネルを必要とし、shim にはちょうど 2 本しかないため、`num_channels=2` は配置に
+失敗します:
+
+```
+error: no ShimNOCTile has sufficient DMA capacity for 0 input/1 output channels
+```
+
+2 入力のカーネルでは `num_channels=1` のままにしてください。
+
+## M10. AIE2P（XDNA2）では bf16 は ¼ レート — bf16 の GEMM は bfp16 経由にする
+
+bf16 MAC は XDNA1 の AIE2 ではネイティブですが、XDNA2 の AIE2P では **bfp16
+データパスを通した約 ¼ レートのエミュレーション** です。ネイティブモードは bfp16
+ブロック浮動小数点（8×8×8）です。ストックの matmul はこのワークアラウンドを
+フラグとして公開しています:
+
+```bash
+python whole_array.py … --dtype_in bf16 --dtype_out f32 --emulate-bf16-mmul-with-bfp16 1
+```
+
+ここでの計測: 512³/32³ タイルで +17%、64×32×64 タイルの 2048³ で +25%
+（4.64 対 3.7 前後の TFLOPS）。詳細: [MLIR-AIE.md](MLIR-AIE.md) → GEMM の教訓。
+
+## M11. ネイティブ bfp16 は K タイル数が増えると正しさを失う場合がある
+
+`ml/block_datatypes` のネイティブ bfp GEMM は、高速に見えても結果が誤って
+いる場合があります。CPU の float 参照値との比較では 512³ と 1024³ は通りますが、
+2048³ は失敗します（1000 サンプル中 291、最大相対誤差 12%）。M=N=1024 では、
+K=1216 が **PASS**、K=1280 が **FAIL** という境界が観測されました。
+
+ソースを見る限り、K タイル間で部分出力が bfp16 に繰り返し再量子化される可能性が
+あります。これは K 依存性を説明しますが、実証済みの修正ではありません。
+ネイティブ bfp のスループットは、必ず CPU 参照の **PASS** とともに報告してください。
+[`check-bfp16-correctness.sh`](../scripts/check-bfp16-correctness.sh) はこの既知の
+境界を再現してアサートします。

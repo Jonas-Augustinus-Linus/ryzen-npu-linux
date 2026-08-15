@@ -1,11 +1,11 @@
 **[🇬🇧 English](README.md) · [🇩🇪 Deutsch](README.de.md) · [🇫🇷 Français](README.fr.md) · [🇰🇷 한국어](README.ko.md) · [🇯🇵 日本語](README.ja.md)**
 
-# npu-runner — 常駐型 XDNA1 NPU 呼び出し器（IREE ランタイム C API）
+# npu-runner — 常駐型 AMD XDNA NPU 呼び出し器（IREE ランタイム C API）
 
 ![npu-runner demo](../../docs/media/npu-runner.gif)
 
 `.vmfb` を **一度だけ** ロードし、呼び出しごとに `iree-run-module` を起動するのではなく、
-同一プロセス内で NPU を何度も呼び出します。7840U での実測値は **約 3.7 ms/invoke 対
+同一プロセス内で NPU を何度も呼び出します。7840U/XDNA1 での実測値は **約 3.7 ms/invoke 対
 約 41 ms/invoke**（サブプロセス方式）— 約 11 倍高速です。XRT のデバイスオープンと
 プロセス起動が、毎回ではなく一度だけ行われるためです。これは「NPU はベンチマークでは動く」を
 「NPU が常時稼働の KWS / 埋め込み / CNN / カメラ / オーディオに使える」へと変えるものです。
@@ -14,12 +14,16 @@
 - **`npu_runner`** — スタンドアロンの CLI／ベンチマーク（`npu_runner.cc`）。
 - **`libnpu.so` + `npu.py`** — ctypes 共有ライブラリ。これにより **Python** から
   NPU を高速に呼び出せます（[`../../examples/npu-camera`](../../examples/npu-camera) と
-  [wake-word](../wake-word) ヘッドで使用）。
+  [wake-word](../../examples/wake-word) ヘッドで使用）。
 
 ## ビルド
 
 ビルド済みの `iree-amd-aie` が必要です（[`../../scripts/build.sh`](../../scripts/build.sh) を参照）。
 どちらのビルドスクリプトも `IREE_AMD_AIE_ROOT`（デフォルトは `~/src/iree-amd-aie`）を尊重します。
+Python ラッパーには、アクティブな Python 環境の NumPy が必要です。
+ランタイムコードは XDNA1 と XDNA2 の両方をサポートします。`.vmfb` は
+デバイス固有です。`scripts/run-matmul.sh` は搭載 NPU を検出し、
+`npu1_4col` または `npu4` 向けにコンパイルします。
 
 ```bash
 ./build.sh        # -> npu_runner (CLI)
@@ -29,11 +33,11 @@
 ## 実行
 
 ```bash
-# make a test module (i32 128x128 @matmul)
-~/src/iree-amd-aie/run_npu_matmul.sh 2 3        # -> /tmp/matmul_npu.vmfb (all 768)
+# デバイスに合わせi32 128x128 @matmul を作成・検証し、モジュールを保存
+VMFB_OUT=/tmp/matmul_npu.vmfb ../../scripts/run-matmul.sh i32 128 128 128 2 3
 
 ./npu_runner /tmp/matmul_npu.vmfb 1000          # 1000 in-process invokes
-python3 npu.py /tmp/matmul_npu.vmfb             # Python ctypes self-test -> 768
+python3 npu.py /tmp/matmul_npu.vmfb             # Python ctypes セルフテスト -> 全要素 768
 ```
 
 ```python
@@ -54,8 +58,10 @@ npu.close()
   `iree_async_proactor_pool_create(1, NULL, …)` で 1 つ作成し、
   `iree_hal_device_create_params_t.proactor_pool` に設定します（ランタイムの
   `try_create_default_device` が内部で行っていることです）。
-- **`n_core_cols = 4`** をデバイスパラメータに明示的に設定します（5 だと ERT state-8
-  タイムアウト）。スタンドアロンのプログラムは `--amdxdna_*` フラグをパースしません。
+- **グリッドの自動検出:** 両方の C API 呼び出し器は `n_core_rows` と
+  `n_core_cols` を `0` のままにします。現行の amdxdna ランタイムが Phoenix
+  4×4 または Strix 4×8 を検出し、Phoenix の予約メタデータ列も補正します。
+  これにより、一方の世代の形状を他方に固定せずに済みます。
 - **リンク:** ランタイム C API は `libiree_runtime_unified.a` にありますが、amdxdna
   ドライバはそこに同梱されていない HAL ユーティリティのアーカイブをいくつか引き込みます（deferred_command_buffer、
   queue_emulation、queue_host_call_emulation、resource_set、file_transfer）。加えて

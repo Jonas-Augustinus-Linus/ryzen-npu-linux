@@ -1,11 +1,11 @@
 **[🇬🇧 English](README.md) · [🇩🇪 Deutsch](README.de.md) · [🇫🇷 Français](README.fr.md) · [🇰🇷 한국어](README.ko.md) · [🇯🇵 日本語](README.ja.md)**
 
-# npu-runner — 상주형 XDNA1 NPU 호출기 (IREE runtime C API)
+# npu-runner — 상주형 AMD XDNA NPU 호출기 (IREE runtime C API)
 
 ![npu-runner demo](../../docs/media/npu-runner.gif)
 
 `.vmfb`를 **한 번만** 로드한 뒤, 호출마다 `iree-run-module`을 새로 띄우는 대신
-프로세스 내부에서 NPU를 여러 번 호출합니다. 7840U에서 측정한 결과: **~3.7 ms/invoke 대
+프로세스 내부에서 NPU를 여러 번 호출합니다. 7840U/XDNA1에서 측정한 결과: **~3.7 ms/invoke 대
 ~41 ms/invoke**(서브프로세스 경로) — 약 11배 빠릅니다. XRT 디바이스 오픈 + 프로세스
 스폰이 매 호출이 아니라 한 번만 일어나기 때문입니다. 이로써 "벤치마크에서 NPU가 동작한다"가
 "상시 가동 KWS / 임베딩 / CNN / 카메라 / 오디오에 NPU를 실제로 쓸 수 있다"로 바뀝니다.
@@ -14,12 +14,16 @@
 - **`npu_runner`** — 독립 실행형 CLI/벤치마크(`npu_runner.cc`).
 - **`libnpu.so` + `npu.py`** — ctypes 공유 라이브러리로, **Python**이 NPU를 빠르게
   호출할 수 있게 합니다([`../../examples/npu-camera`](../../examples/npu-camera)와
-  [wake-word](../wake-word) 헤드에서 사용).
+  [wake-word](../../examples/wake-word) 헤드에서 사용).
 
 ## Build
 
 빌드된 `iree-amd-aie`가 필요합니다([`../../scripts/build.sh`](../../scripts/build.sh) 참고).
 두 빌드 스크립트 모두 `IREE_AMD_AIE_ROOT`(기본값 `~/src/iree-amd-aie`)를 따릅니다.
+Python 래퍼는 활성 Python 환경에 NumPy가 필요합니다.
+런타임 코드는 XDNA1과 XDNA2를 모두 지원합니다. `.vmfb`는 디바이스별 파일이며,
+`scripts/run-matmul.sh`는 설치된 NPU를 감지해 `npu1_4col` 또는 `npu4`로
+컴파일합니다.
 
 ```bash
 ./build.sh        # -> npu_runner (CLI)
@@ -29,11 +33,11 @@
 ## Run
 
 ```bash
-# make a test module (i32 128x128 @matmul)
-~/src/iree-amd-aie/run_npu_matmul.sh 2 3        # -> /tmp/matmul_npu.vmfb (all 768)
+# 디바이스에 맞는 i32 128x128 @matmul을 만들고 검증한 뒤 모듈 보존
+VMFB_OUT=/tmp/matmul_npu.vmfb ../../scripts/run-matmul.sh i32 128 128 128 2 3
 
 ./npu_runner /tmp/matmul_npu.vmfb 1000          # 1000 in-process invokes
-python3 npu.py /tmp/matmul_npu.vmfb             # Python ctypes self-test -> 768
+python3 npu.py /tmp/matmul_npu.vmfb             # Python ctypes self-test -> 전체 768
 ```
 
 ```python
@@ -54,8 +58,10 @@ npu.close()
   역참조합니다 — pool이 없으면 segfault가 납니다. `iree_async_proactor_pool_create(1, NULL, …)`로
   하나를 생성하고 `iree_hal_device_create_params_t.proactor_pool`에 설정합니다(runtime의
   `try_create_default_device`가 내부적으로 하는 동작).
-- **`n_core_cols = 4`**를 디바이스 파라미터에 명시적으로 설정합니다(5 → ERT state-8
-  타임아웃); 독립 실행 프로그램은 `--amdxdna_*` 플래그를 파싱하지 않습니다.
+- **격자 자동 탐지:** 두 C API 호출기는 `n_core_rows`와 `n_core_cols`를
+  `0`으로 둡니다. 현재 amdxdna 런타임은 Phoenix 4×4 또는 Strix 4×8 격자를
+  탐지하고 Phoenix 메타데이터의 예약 열도 보정합니다. 따라서 한 세대의 격자를
+  다른 세대에 하드코딩하지 않습니다.
 - **링킹:** runtime C API는 `libiree_runtime_unified.a`에 있지만, amdxdna
   드라이버는 거기에 번들되지 않은 몇몇 HAL-utils 아카이브(deferred_command_buffer,
   queue_emulation, queue_host_call_emulation, resource_set, file_transfer)와

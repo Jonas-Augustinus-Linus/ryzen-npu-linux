@@ -1,11 +1,11 @@
 **[🇬🇧 English](README.md) · [🇩🇪 Deutsch](README.de.md) · [🇫🇷 Français](README.fr.md) · [🇰🇷 한국어](README.ko.md) · [🇯🇵 日本語](README.ja.md)**
 
-# npu-runner — persistenter XDNA1-NPU-Caller (IREE-Laufzeit-C-API)
+# npu-runner — persistenter AMD-XDNA-NPU-Caller (IREE-Laufzeit-C-API)
 
 ![npu-runner demo](../../docs/media/npu-runner.gif)
 
 Lädt eine `.vmfb` **einmal** und ruft die NPU im selben Prozess viele Male auf, statt
-pro Aufruf `iree-run-module` zu starten. Gemessen auf einem 7840U: **~3.7 ms/invoke gegenüber
+pro Aufruf `iree-run-module` zu starten. Gemessen auf einem 7840U/XDNA1: **~3.7 ms/invoke gegenüber
 ~41 ms/invoke** beim Subprozess-Pfad — ~11× schneller, weil das XRT-Device-Open und das
 Starten des Prozesses einmalig geschehen, nicht bei jedem Aufruf. Das ist es, was aus „die NPU funktioniert in
 einem Benchmark" ein „die NPU ist nutzbar für Always-on-KWS / Embeddings / CNN / Kamera / Audio" macht.
@@ -14,12 +14,16 @@ Zwei Formen, derselbe Kern:
 - **`npu_runner`** — eine eigenständige CLI/Benchmark (`npu_runner.cc`).
 - **`libnpu.so` + `npu.py`** — eine ctypes-Shared-Library, damit **Python** die
   NPU schnell aufrufen kann (verwendet von [`../../examples/npu-camera`](../../examples/npu-camera) und dem
-  [wake-word](../wake-word)-Kopf).
+  [wake-word](../../examples/wake-word)-Kopf).
 
 ## Build
 
 Setzt ein gebautes `iree-amd-aie` voraus (siehe [`../../scripts/build.sh`](../../scripts/build.sh)).
 Beide Build-Skripte beachten `IREE_AMD_AIE_ROOT` (Standard `~/src/iree-amd-aie`).
+Der Python-Wrapper benötigt NumPy in der aktiven Python-Umgebung.
+Der Laufzeitcode unterstützt XDNA1 und XDNA2. Eine `.vmfb` ist gerätespezifisch;
+`scripts/run-matmul.sh` erkennt die installierte NPU und kompiliert entsprechend
+für `npu1_4col` oder `npu4`.
 
 ```bash
 ./build.sh        # -> npu_runner (CLI)
@@ -29,11 +33,11 @@ Beide Build-Skripte beachten `IREE_AMD_AIE_ROOT` (Standard `~/src/iree-amd-aie`)
 ## Run
 
 ```bash
-# make a test module (i32 128x128 @matmul)
-~/src/iree-amd-aie/run_npu_matmul.sh 2 3        # -> /tmp/matmul_npu.vmfb (all 768)
+# Ein gerätepassendes i32-128x128-@matmul erstellen, prüfen und behalten.
+VMFB_OUT=/tmp/matmul_npu.vmfb ../../scripts/run-matmul.sh i32 128 128 128 2 3
 
 ./npu_runner /tmp/matmul_npu.vmfb 1000          # 1000 in-process invokes
-python3 npu.py /tmp/matmul_npu.vmfb             # Python ctypes self-test -> 768
+python3 npu.py /tmp/matmul_npu.vmfb             # Python-ctypes-Selbsttest -> alle 768
 ```
 
 ```python
@@ -54,8 +58,10 @@ npu.close()
   `iree_async_proactor_pool_create(1, NULL, …)` und setzen ihn auf
   `iree_hal_device_create_params_t.proactor_pool` (das, was die
   `try_create_default_device` der Laufzeit intern macht).
-- **`n_core_cols = 4`** wird explizit auf den Device-Params gesetzt (5 → ERT-State-8-
-  Timeout); ein eigenständiges Programm parst die `--amdxdna_*`-Flags nicht.
+- **Automatische Grid-Erkennung:** Beide C-API-Caller lassen `n_core_rows` und
+  `n_core_cols` auf `0`. Die aktuelle amdxdna-Laufzeit erkennt ein 4×4-Phoenix-
+  oder 4×8-Strix-Grid und berücksichtigt die reservierte Metadatenspalte von
+  Phoenix. So wird die Geometrie einer Generation nicht für die andere fest codiert.
 - **Linking:** Die Laufzeit-C-API liegt in `libiree_runtime_unified.a`, aber der amdxdna-
   Treiber zieht ein paar HAL-utils-Archive nach, die nicht darin gebündelt sind (deferred_command_buffer,
   queue_emulation, queue_host_call_emulation, resource_set, file_transfer) plus

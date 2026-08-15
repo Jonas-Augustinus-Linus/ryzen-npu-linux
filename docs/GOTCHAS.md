@@ -267,16 +267,24 @@ Many examples ship **both** a C++ host (`test.cpp` → `make run`) and a Python 
 **not** install. Prefer `run_py`. For C++-only examples (matrix_multiplication,
 vision, relu, softmax): `sudo apt install libxrt-dev`.
 
-## M5. Reuse the Peano you already built
+## M5. Reuse Peano only when its release pin matches
 
-Don't re-download `llvm-aie`. Pass the iree-amd-aie Peano as `env_setup.sh`'s 2nd
-argument so it skips its auto-install:
+Support for `aie` / `aie2` / `aie2p` alone is not enough. Each mlir-aie release
+pins an exact `llvm-aie` wheel in `utils/peano-requirements.txt`; Peano from
+iree-amd-aie is reusable only when both its wheel-version metadata **and** the
+build commit reported by `clang --version` match that pin. `setup-mlir-aie.sh`
+checks both. For a manual setup, the safest compatible selection is:
 
 ```bash
-source utils/env_setup.sh "$SITE/mlir_aie" "$HOME/src/iree-amd-aie/llvm-aie"
+python -m pip install --upgrade -r utils/peano-requirements.txt
+SITE="$(python -c 'import site; print(site.getsitepackages()[0])')"
+source utils/env_setup.sh "$SITE/mlir_aie"
 ```
 
-It supports `aie` / `aie2` / `aie2p`, so the same Peano serves both tracks.
+`env_setup.sh` only configures the environment; with no second argument it finds
+the pinned wheel in the active venv. Pass
+`$HOME/src/iree-amd-aie/llvm-aie` explicitly only after verifying that same exact
+version and clang commit—do not select it merely because it is already present.
 
 ## M6. Full-network designs want more than Phoenix's 4 columns
 
@@ -288,4 +296,91 @@ RuntimeError: DRM_IOCTL_AMDXDNA_CREATE_HWCTX IOCTL failed (err=-22): Invalid arg
 design requests more columns than Phoenix exposes (**4** — the same 4 from gotcha
 #6 above). Single building blocks (`conv2d`, `bottleneck`, `resnet/layers_conv2_x`)
 and `magika` fit in 4 columns and run; the full network is XDNA2 (Strix, 8-column)
-territory.
+territory. *(Confirmed 2026-08-15: on Strix Point's 8 columns the full network
+runs end-to-end, ~176 ms/inference — [XDNA2.md](XDNA2.md).)*
+
+## M7. IRON 1.4.x broke the un-annotated `@iron.jit` call form
+
+Code written against 1.3.x like
+
+```python
+iron.jit(transform_binary)(kernel, a, b, out, tile_size=tile_size)
+```
+
+dies on 1.4.x with
+
+```
+TypeError: @iron.jit: parameter(s) ['tile_size', 'trace_size'] of 'transform_binary'
+have default values but no In / Out / InOut / CompileTime[T] annotation.
+```
+
+1.4.x requires an annotated design function — tensors as `In`/`Out`,
+compile-time scalars as `CompileTime[T]` keyword-only params — and the
+`iron.algorithms.*` helpers now take a **numpy type descriptor** inside the jit
+body instead of live tensors:
+
+```python
+@iron.jit
+def design(a: In, b: In, out: Out, *,
+           num_elements: CompileTime[int], tile_size: CompileTime[int]):
+    tensor_ty = np.ndarray[(num_elements,), np.dtype[np.int32]]
+    return iron.algorithms.transform_binary(kernel, tensor_ty, tile_size=tile_size)
+```
+
+`ExternalFunction` still auto-receives a trailing `int` tile-size argument
+(`pass_size_to_kernel=True` in the parallel variants). See
+`examples/mlir-aie/relu_add/` for a full before/after.
+
+## M8. Core-local memory is 64 KB — size your tiles for the FIFOs, not the math
+
+A binary element-wise design needs **6 tile buffers** live in one core's data
+memory (3 ObjectFifos × double buffering). At `tile_size=4096` int32 that is
+6 × 16 KB = 96 KB and aiecc fails placement:
+
+```
+error: 'aie.tile' op Basic sequential allocation also failed.
+note: MemoryMap: (stack) 0x0-0x3FF … in0_cons_buff_1 0x14400-0x183FF …
+```
+
+`tile_size=1024` (6 × 4 KB + stack) fits with room. The same budget explains
+why whole-array GEMM accepts 64³ inner tiles for i8 but not for bf16 (2-byte
+elements double the buffer sizes).
+
+## M9. Binary kernels can't drive 2 shim DMA channels per column
+
+`transform_parallel*(…, num_channels=2)` doubles DDR throughput for **unary**
+kernels by running one Worker per (column, channel). A **binary** kernel already
+needs two MM2S shim channels per column — one per input — and the shim has
+exactly two, so `num_channels=2` fails placement:
+
+```
+error: no ShimNOCTile has sufficient DMA capacity for 0 input/1 output channels
+```
+
+Keep `num_channels=1` for 2-input kernels.
+
+## M10. On AIE2P (XDNA2), bf16 is ¼-rate — route bf16 GEMMs through bfp16
+
+bf16 MAC is native on XDNA1's AIE2 but **emulated through the bfp16 datapath at
+~¼ rate** on XDNA2's AIE2P; the native mode is bfp16 block floating point
+(8×8×8). The stock matmuls expose the workaround as a flag:
+
+```bash
+python whole_array.py … --dtype_in bf16 --dtype_out f32 --emulate-bf16-mmul-with-bfp16 1
+```
+
+Measured here: +17% at 512³/32³-tiles, +25% at 2048³ with 64×32×64 tiles
+(4.64 vs 3.7-ish TFLOPS). Details: [MLIR-AIE.md](MLIR-AIE.md) → GEMM lessons.
+
+## M11. Native bfp16 can fail as the K-tile count grows
+
+The `ml/block_datatypes` native-bfp GEMM can look fast and still be wrong.
+Against a CPU float reference, 512³ and 1024³ pass, while 2048³ fails (291 of
+1000 sampled outputs, maximum relative error 12%). With M=N=1024, the observed
+boundary is K=1216 **PASS** and K=1280 **FAIL**.
+
+Source inspection suggests repeated bfp16 re-quantization of the partial output
+between K tiles; this explains the K dependence but is not yet a proven fix.
+Always require a CPU-reference **PASS** before reporting native-bfp throughput.
+[`check-bfp16-correctness.sh`](../scripts/check-bfp16-correctness.sh) reproduces
+and asserts the known boundary.

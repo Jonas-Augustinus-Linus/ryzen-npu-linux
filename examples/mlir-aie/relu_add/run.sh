@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# run.sh — build + run the custom fused relu(a+b) kernel ON THE XDNA1 NPU.
+# run.sh — build + run the custom fused relu(a+b) kernel ON THE NPU
+# (XDNA1 npu1 or XDNA2 npu2 — detected automatically).
 #   ./run.sh
 # Needs the mlir-aie track set up first: ../../../scripts/setup-mlir-aie.sh
 set -euo pipefail

@@ -263,9 +263,11 @@ iree-run-module --device=amdxdna --module=model.vmfb \
 
 ## 🔇 Mesuré : le NPU perd face au CPU pour l'audio
 
-Nous l'avons mesuré sur un 7840U. Une **trame entière de débruiteur CPU (8 layers) = 0.063 ms**,
-alors qu'un **unique dispatch NPU = 3.8 ms** — **~480× plus lent**, et un vrai débruiteur
-nécessite de nombreux dispatches/trame (≫ le budget temps réel de 10 ms). Les trames audio sont
+Nous l'avons mesuré sur un 7840U. Une **trame entière de débruiteur CPU (8 couches) = 0.063 ms**,
+alors qu'un **unique dispatch NPU = 3.8 ms** — **~60× plus lent que cette trame CPU entière**.
+Avec un mappage naïf de huit couches utilisant un dispatch par couche, une trame prendrait
+**8 × 3.8 ms = 30.4 ms** — **~480× plus lente que la trame CPU** et dépasserait le budget
+temps réel de 10 ms. Les trames audio sont
 minuscules, donc la latence est **limitée par la surcharge de dispatch** et l'avantage de débit du NPU
 ne s'applique jamais ; RNNoise (GRU) n'a aucun abaissement NPU du tout. **Utilisez le CPU** pour la
 suppression de bruit en temps réel — p. ex. RNNoise via un micro virtuel PipeWire `module-filter-chain`

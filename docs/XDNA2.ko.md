@@ -86,8 +86,44 @@ RyzenAI-npu4
 
 `RyzenAI-npu4`는 아래 이름 해독표의 해당 행을 실제 하드웨어에서 확인해준다:
 XRT에게 Strix Point는 `npu4`다. *여기까지* 오는 데 소스 빌드는 필요 없었다 —
-XDNA2/Ubuntu 26.04에서 활성화는 컴파일이 아니라 설정의 문제다. 다음 단계는
-연산이다(*다음으로 갈 곳* 참조).
+XDNA2/Ubuntu 26.04에서 활성화는 컴파일이 아니라 설정의 문제다.
+
+## ✅ 연산: XDNA2 NPU에서 검증됨 (같은 머신, 2026-08-15)
+
+IRON 트랙은 활성화가 자리 잡은 바로 그날 돌아갔다 — `setup-mlir-aie.sh`
+무수정, mlir-aie **1.4.1**(cp314 wheel), Peano wheel, Ubuntu의 `pyxrt`.
+전체 표는 [MLIR-AIE.ko.md](MLIR-AIE.ko.md)에 있다; 헤드라인만 추리면:
+
+- **8 컬럼 / 32 타일 전부에서 GEMM**(`whole_array`, 2048³): i8 **6.65 TOPS**,
+  bfp16 경유 bf16 **4.64 TFLOPS** — 내부 타일 크기만으로 3.4×가 나왔다
+  (32³ → 64³ 타일).
+- **AIE2P는 bfp16을 원한다**: bf16 MAC은 XDNA2에서 약 ¼ 속도의
+  *에뮬레이션*이다(XDNA1에서는 네이티브); `--emulate-bf16-mmul-with-bfp16 1`은
+  공짜 속도다. 네이티브 bfp16ebs8 설계는 여기서 Peano로 컴파일된다;
+  실행에는 `libxrt-dev`(C++ 호스트)가 필요하다.
+- **Phoenix의 4 컬럼에서 `CREATE_HWCTX`에 실패하는 바로 그 설계인
+  `ml/mobilenet`이** 8 컬럼 어레이에서는 **엔드투엔드로 돌아간다**:
+  ~176 ms/추론.
+- LLM 블록은 `npu2`에서 전부 통과한다: softmax, RoPE, SwiGLU, RMSNorm,
+  matmul+활성화-에필로그.
+- IRON 1.4.x API로 이식한 우리의 커스텀 `relu(a+b)` 커널은 **8 컬럼에서
+  8.0×**로 스케일된다(`transform_parallel_binary`), 실효 11.2 GB/s.
+
+### ✅ IREE: `npu4` CPU 참조 정확도(별도 트랙)
+
+이 하드웨어에서 upstream IREE CPU-vs-NPU 하네스도
+`--target_device=npu4`, 코어 4행×8열, Peano 22 커밋 `4a1adefa`로 실행했다.
+
+| IREE matmul | 비교한 값 수 | CPU 대 NPU 결과 |
+|---|---:|---|
+| bf16→f32, 64³ | 4,096 | 전체 일치; 최대 절대/상대 오차 0 |
+| bf16→f32, 512³ | 262,144 | 전체 일치; 최대 절대/상대 오차 0 |
+| i8→i32, 512³ | 262,144 | 불일치 0 |
+
+이것은 `iree-amd-aie` bf16/i8 정확도 결과이며, 네이티브 `mlir-aie`
+bfp16ebs8 경로와는 다르다. 별도의 Peano 21 누적 스윕은 K=1216에서
+통과하고 K=1280에서 처음 실패했으며, 이 IREE 표는 그 경계를 바꾸지
+않는다. 또한 이 정확도 실행은 **성능 측정이 아니다**.
 
 ### XDNA1 도구를 XDNA2에 들이대자 드러난 스크립트 버그 (수정됨)
 
@@ -139,11 +175,11 @@ XDNA2/Ubuntu 26.04에서 활성화는 컴파일이 아니라 설정의 문제다
 |---|---|---|
 | `scripts/check-npu.sh` | ✅ 동작함 (이 커밋) | XDNA2 PCI 문자열 + 세대 보고; [6] 성공 쪽 SIGPIPE 수정; [5]는 이제 pam 대 systemd memlock 분리를 진단한다 |
 | `scripts/enable-npu.sh` | ✅ 동작함 (이 커밋에서 확장됨) | 동일한 3가지 차단 요인; Ubuntu 26.04가 패키지를 미리 설치해 둔다 — 다만 systemd 데스크톱에서는 memlock 수정에 limits.d 위에 `user@.service` drop-in이 추가로 필요하다 ([gotcha #0](GOTCHAS.ko.md)) |
-| `scripts/build.sh` (iree-amd-aie) | 🔎 이식될 것 | `npu4`는 지원되는 타깃이다; 프로젝트는 활발하다(Peano npu4용 softmax ukernel, ERT_CMD_CHAIN 배칭). 커밋 동기화(commit-lockstep) gotcha(고정된 xdna-driver)는 남아 있다 |
-| `scripts/run-matmul.sh` | 🔎 이식될 것 | 타깃 `npu1_4col` → `npu4`; `amdxdna` HAL 플래그는 그대로다 |
-| `tools/npu-runner` | 🔎 이식될 것 | IREE C API는 변경 없음 — npu4 빌드에 맞춰 재컴파일 |
+| `scripts/build.sh` (iree-amd-aie) | ✅ 실기 검증 | Strix에서 소스 빌드+설치 완료; 제한된 병렬도로 관측된 OOM을 방지하고, 마지막 검사가 `npu1_4col`과 `npu4`를 모두 요구함; Peano 22 `4a1adefa`로 테스트 |
+| `scripts/run-matmul.sh` | ✅ 실기 검증 | 4×8 격자를 감지해 `npu4`를 선택; XDNA1 경로를 유지하면서 i32 128³과 bf16 512³이 올바르게 컴파일·실행됨 |
+| `tools/npu-runner` | ✅ 실기 검증 | C API 격자 자동 탐지가 4×8을 확인; 네이티브 runner와 ctypes/Python 경로 모두 i32 출력 16,384개 전체를 검증 |
 | `tools/npu-trim` | ✅ 개념 그대로 유효 | op 커버리지 최전선은 이동하지만 접근법은 동일; 이를 대체할 벤더 EP는 Linux에 여전히 없다 |
-| `mlir-aie` (IRON) 트랙 | 🔎 **가장 유력한 경로** | IRON [1.4.x](https://github.com/Xilinx/mlir-aie/releases): Strix가 일급 지원(`npu2`), **이제 Peano가 기본 백엔드**(우리는 어차피 빌드했다), **HRX** = XRT 없는 호스트 런타임 옵션; [amd/IRON](https://github.com/amd/IRON)은 미리 빌드된 op 라이브러리(GEMM, GEMV, MHA, GQA, RMSNorm, RoPE, softmax, dequant)를 pip wheel로 배포한다 |
+| `mlir-aie` (IRON) 트랙 | ✅ **검증됨 — 가장 유력한 경로** (이 커밋) | IRON [1.4.1](https://github.com/Xilinx/mlir-aie/releases): Strix가 일급 지원(`npu2`), **Peano가 기본**, `aiecc`는 이제 C++ 바이너리, 예제는 lit 구동; 우리의 스크립트 + 커스텀 커널을 이식함(어노테이션 API 파괴적 변경 — [GOTCHAS](GOTCHAS.ko.md)); 수치는 [MLIR-AIE.ko.md](MLIR-AIE.ko.md)에. 이전 조사에 대한 정정: mlir-aie 1.4.1은 **선택형 HRX Python 백엔드를 실제로 제공**하며, 외부에서 제공하는 `libhrx`가 필요하다. 이 저장소의 `relu_add` 단일 Worker 및 8컬럼 설계는 여기서 HRX 런타임 디스패치와 정합성 PASS를 실제 하드웨어로 검증했다. 다만 아티팩트 생성에는 기존 XRT 툴체인을 사용했으므로, 완전히 XRT 없는 빌드+실행 경로까지 검증했다는 뜻은 아니다. [amd/IRON](https://github.com/amd/IRON)은 여전히 **wheel을 배포하지 않는다**(소스 설치 전용, mlir_aie 1.3.5.dev 스냅샷에 고정) |
 
 ## 🔎 커널을 작성할 때 중요한 하드웨어 델타
 
@@ -152,10 +188,18 @@ XDNA2/Ubuntu 26.04에서 활성화는 컴파일이 아니라 설정의 문제다
   펌웨어가 컨텍스트 스케줄링을 관리한다
   ([커널 문서](https://docs.kernel.org/accel/amdxdna/amdnpu.html)).
 - **데이터타입**: AIE2P의 간판은 **bfp16 블록 부동소수점(block floating point)**이다 —
-  값 8개가 8비트 지수 하나를 공유해, 값 8개당 9바이트다. 지원 여부는 feature flag가
-  아니라 mlir-aie에 하드코딩된 약 450개 이상의 `__AIE_ARCH__` 조건으로 갈리는데 —
-  이는 이식의 위험 요소인 동시에 이름이 붙은 기여 지점이다
-  ([mlir-aie#3390](https://github.com/Xilinx/mlir-aie/discussions/3390)).
+  값 8개가 8비트 지수 하나를 공유해, 값 8개당 9바이트다. Peano의 현재
+  나이틀리 기준으로 이는 열린 스택에서 실재한다: clang이
+  `__builtin_aie2p_*bfp16ebs8/16` 변환 빌트인과 `BFP576_BFP576_ACC2048`
+  MAC 빌트인을 제공하고, `ml/block_datatypes` GEMM들이 Peano로 빌드된다(✅
+  이 머신에서 컴파일됨). 그 이면: **bf16 MAC은 퇴보했다** — AIE2에서는
+  네이티브 4×8×4, AIE2P에서는 bfp16 데이터패스를 통한 약 ¼ 속도
+  에뮬레이션이다
+  ([mlir-aie#3390](https://github.com/Xilinx/mlir-aie/discussions/3390),
+  [Hello XDNA](https://tnzr.org/xdna/isa.html)). npu1에서 bf16용으로 튜닝한
+  커널은 npu2 피크 처리량을 위해 bfp16으로 다시 써야 한다; 커널 C++는
+  `__AIEARCH__`(20 = AIE2, 21 = AIE2P)로 아키텍처 분기(arch-gated)되며,
+  업스트림은 `aie_kernels/aie2/`와 `aie2p/` 트리를 병렬로 유지한다.
 - **ISA**: 공식 매뉴얼은 여전히 없지만 사실상 열려 있다 — Peano가 공개 LLVM에서
   이를 구현하고 있으며, [Hello XDNA](https://tnzr.org/xdna/isa.html)는 명령어별
   레이턴시와 함께 XDNA1/XDNA2 ISA를 재구성해 놓았다.
@@ -178,20 +222,43 @@ XDNA2/Ubuntu 26.04에서 활성화는 컴파일이 아니라 설정의 문제다
 
 ## 다음으로 갈 곳
 
-1. **matmul 레시피와 `npu-runner`를 `npu4`로 이식**하고, XDNA1 대
-   XDNA2 수치를 나란히 공개한다(README와 같은 표로).
-2. **4×8 어레이에서 IRON GEMM/GQA를 재현**한다(mlir-aie 1.4.x; XRT 의존성을
-   떨어내기 위해 HRX를 시도).
-3. **양자화 prefill GEMM** — IRON 플로를 통한 W4A16(그리고 bfp16을 활용하는)
-   커널; [TileFuse](https://arxiv.org/abs/2606.11357)가 그 레시피를 공개했다
-   (전정밀도 NPU 베이스라인 대비 GEMV 최대 +281%).
-   [amd/IRON](https://github.com/amd/IRON) 라이브러리에는 dequant는 있지만
-   **Q4/MXFP4 GEMM은 없다** — 그 격차는 실재하며, llama.cpp에는 아직 아무도
-   맡지 않은 열린 ggml-xdna 백엔드 요청
-   ([#21725](https://github.com/ggml-org/llama.cpp/issues/21725))이
-   메인테이너 눈에 띄는 착륙 지점으로 존재한다.
+1. ~~4×8 어레이에서 IRON GEMM 재현~~ — **✅ 완료**(mlir-aie 1.4.1,
+   어레이 전체 GEMM이 i8 6.65 TOPS / bf16-bfp16 4.64 TFLOPS, LLM 블록,
+   전체 MobileNet; [MLIR-AIE.ko.md](MLIR-AIE.ko.md)). GQA/MHA:
+   [amd/IRON](https://github.com/amd/IRON) op 라이브러리에 있지만 **aie2p
+   전용**(head-dim 64만)이다 — 다만 그것은 소스 설치 전용이고, mlir_aie
+   1.3.5.dev 스냅샷에 고정되어 있으며, 유일한 양자화 op는 *dequant*(Q4NX/AWQ
+   → bf16)다. wheel 없음, 융합 W4A16 없음.
+2. ~~iree-amd-aie matmul 레시피와 `npu-runner`를 `npu4`로 이식하고
+   CPU 참조 정확도 확인~~ — **✅ 완료**. 빌드, 세대 감지 matmul 스크립트,
+   상주형 C API runner, Python 래퍼가 모두 이 Strix 머신에서 실행됐고,
+   upstream 하네스는 위의 전체 일치 표를 만들었다. 통제된 XDNA1 대 XDNA2
+   성능 비교는 별도의 후속 작업이며, 이 정확도 실행에서 속도를 주장하지 않는다.
+3. **양자화 prefill GEMM** — 이제 정밀하게 지도가 그려진 기여 지점:
+   [TileFuse](https://arxiv.org/abs/2606.11357)가 W4A16 레시피를 *코드와
+   함께* 공개했다
+   ([glassescrab/mlir-aie](https://github.com/glassescrab/mlir-aie/tree/feature/update-mix-mm-int4-verification),
+   main보다 약 13개월 뒤처진 포크, **chess 우선**에 Peano는 옵션; AWQ
+   group-128, k-타일 = 그룹 크기, dequant를 L1 weight-stationary 캐시와 함께
+   타일 안에서 융합, Strix Point에서 9 TOPS). 열린 형태로는 어디에도 존재하지
+   **않는** 것: 그 커널의 **현행 IRON 1.4.x + Peano 전용** 버전, 그리고 어떤
+   llama.cpp 통합이든.
+   [#21725](https://github.com/ggml-org/llama.cpp/issues/21725)는 여전히 열려
+   있고 아무도 맡지 않았다(작성자의 WIP는 2026-04에 멈췄다; AMD 자신의
+   활발한 노력은 HSA/ROCr 런타임 위의
+   [`ggml-hsa`](https://github.com/ypapadop-amd/ggml/tree/hsa-backend)로 —
+   Ubuntu의 XRT와는 다른 스택이다). 또한 업스트림에서 측정되어 훔쳐올 가치가
+   있는 것: **64 KB 버퍼 정렬(SMMU 페이지)이 #21725에 인용된 IRON 실험에서
+   10× decode 손잡이였다**.
+   **이 머신에서 스파이크 확인(2026-08-15)**: TileFuse의 융합 dequant+GEMM
+   커널(`mix_int4_ATB.cc`)이 **mlir-aie 1.4.1 헤더에 대해 Peano `aie2p`
+   타깃으로 깔끔하게 컴파일된다**(`-Dbf16_bf16_ONLY`, m64/k128/n64 →
+   `matmul_bf16_bf16`). 이 특수화의 프런트엔드 컴파일 장벽 하나를 넘은
+   것이지, 포팅이 끝난 것은 **아니다**. IRON/ObjectFifo 통합, 링크, 배치,
+   ABI 일치, 호스트 측 가중치 패킹, NPU 실행, 수치 정합성 검증이 모두 남아 있다.
+   고정된 [`check-w4a16-compile.sh`](../scripts/check-w4a16-compile.sh)에 소스
+   커밋, 체크섬, 정확한 프런트엔드 플래그를 기록했다.
 
-*상태: 2026-08-15에 페이지 추가; 같은 날 위의 Strix Point 머신에서 활성화를
-완료하고 검증했다 — [gotcha #0](GOTCHAS.ko.md)을 수정한 뒤의 `xrt-smi`
-enumeration과 `RyzenAI-npu4`의 `pyxrt` 디바이스 열기. 🔎 항목들은 출처를
-인라인으로 달고 있다.*
+*상태: 2026-08-15에 페이지 추가; 같은 날 위의 Strix Point 머신에서 활성화,
+IRON 연산, CPU 참조 정확도를 포함한 IREE `npu4` 이식을 검증했다.
+🔎 항목들은 출처를 인라인으로 달고 있다.*

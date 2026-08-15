@@ -266,16 +266,23 @@ source 전후로 그 플래그들을 완화했다가 복원한다.)
 **않는다**. `run_py`를 선호하라. C++ 전용 예제(matrix_multiplication, vision,
 relu, softmax)는: `sudo apt install libxrt-dev`.
 
-## M5. 이미 빌드한 Peano를 재사용하라
+## M5. 릴리스 핀이 일치할 때만 Peano를 재사용하라
 
-`llvm-aie`를 다시 받지 말라. iree-amd-aie Peano를 `env_setup.sh`의 두 번째 인자로
-넘겨 자동 설치를 건너뛰게 하라:
+`aie` / `aie2` / `aie2p` 지원 여부만으로는 충분하지 않다. 각 mlir-aie 릴리스는
+`utils/peano-requirements.txt`에 정확한 `llvm-aie` wheel을 핀한다. iree-amd-aie의
+Peano는 wheel 버전 메타데이터와 `clang --version`이 보고하는 **빌드 커밋**이 모두
+그 핀과 일치할 때만 재사용할 수 있다. `setup-mlir-aie.sh`는 둘 다 확인한다.
+수동으로 설정할 때 가장 안전한 호환 버전 선택 방법은 다음과 같다:
 
 ```bash
-source utils/env_setup.sh "$SITE/mlir_aie" "$HOME/src/iree-amd-aie/llvm-aie"
+python -m pip install --upgrade -r utils/peano-requirements.txt
+SITE="$(python -c 'import site; print(site.getsitepackages()[0])')"
+source utils/env_setup.sh "$SITE/mlir_aie"
 ```
 
-이는 `aie` / `aie2` / `aie2p`를 지원하므로, 같은 Peano가 두 트랙 모두에 쓰인다.
+`env_setup.sh`는 환경만 구성한다. 두 번째 인자를 생략하면 활성 venv에서 핀된 wheel을
+찾는다. `$HOME/src/iree-amd-aie/llvm-aie`는 동일한 정확한 버전과 clang 커밋을
+확인한 뒤에만 명시적으로 넘겨라. 이미 존재한다는 이유만으로 선택해서는 안 된다.
 
 ## M6. 네트워크 전체 설계는 Phoenix의 4 컬럼보다 많은 것을 원한다
 
@@ -287,4 +294,95 @@ RuntimeError: DRM_IOCTL_AMDXDNA_CREATE_HWCTX IOCTL failed (err=-22): Invalid arg
 설계가 Phoenix가 노출하는 것보다 많은 컬럼을 요청한다(**4** — 위 gotcha #6과
 같은 4다). 단일 빌딩 블록(`conv2d`, `bottleneck`, `resnet/layers_conv2_x`)과
 `magika`는 4 컬럼에 들어맞고 실행되지만, 전체 네트워크는 XDNA2(Strix, 8 컬럼)
-영역이다.
+영역이다. *(2026-08-15 확인: Strix Point의 8 컬럼에서는 네트워크 전체가
+엔드투엔드로 돌아간다, ~176 ms/추론 — [XDNA2.md](XDNA2.md).)*
+
+## M7. IRON 1.4.x는 어노테이션 없는 `@iron.jit` 호출 형태를 깨뜨렸다
+
+1.3.x 기준으로 작성된 이런 코드는
+
+```python
+iron.jit(transform_binary)(kernel, a, b, out, tile_size=tile_size)
+```
+
+1.4.x에서 다음과 함께 죽는다
+
+```
+TypeError: @iron.jit: parameter(s) ['tile_size', 'trace_size'] of 'transform_binary'
+have default values but no In / Out / InOut / CompileTime[T] annotation.
+```
+
+1.4.x는 어노테이션 붙은 설계 함수를 요구한다 — 텐서는 `In`/`Out`으로,
+컴파일 타임 스칼라는 keyword 전용 `CompileTime[T]` 파라미터로 — 그리고
+`iron.algorithms.*` 헬퍼들은 이제 살아 있는 텐서 대신 jit 본문 안에서
+**numpy 타입 기술자(type descriptor)**를 받는다:
+
+```python
+@iron.jit
+def design(a: In, b: In, out: Out, *,
+           num_elements: CompileTime[int], tile_size: CompileTime[int]):
+    tensor_ty = np.ndarray[(num_elements,), np.dtype[np.int32]]
+    return iron.algorithms.transform_binary(kernel, tensor_ty, tile_size=tile_size)
+```
+
+`ExternalFunction`은 여전히 뒤에 붙는 `int` 타일 크기 인자를 자동으로 받는다
+(parallel 변형에서는 `pass_size_to_kernel=True`). 전체 before/after는
+`examples/mlir-aie/relu_add/`를 볼 것.
+
+## M8. 코어 로컬 메모리는 64 KB다 — 타일 크기는 수학이 아니라 FIFO에 맞춰라
+
+바이너리(2입력) 요소별(element-wise) 설계는 한 코어의 데이터 메모리에
+**타일 버퍼 6개**가 동시에 살아 있어야 한다(ObjectFifo 3개 × 더블 버퍼링).
+`tile_size=4096` int32에서는 6 × 16 KB = 96 KB이고 aiecc는 배치(placement)에
+실패한다:
+
+```
+error: 'aie.tile' op Basic sequential allocation also failed.
+note: MemoryMap: (stack) 0x0-0x3FF … in0_cons_buff_1 0x14400-0x183FF …
+```
+
+`tile_size=1024`(6 × 4 KB + 스택)는 여유 있게 들어맞는다. 같은 예산이, 어레이
+전체 GEMM이 i8에서는 64³ 내부 타일을 받아들이면서 bf16에서는 받아들이지
+못하는 이유도 설명한다(2바이트 요소는 버퍼 크기를 두 배로 만든다).
+
+## M9. 바이너리 커널은 컬럼당 shim DMA 채널 2개를 구동할 수 없다
+
+`transform_parallel*(…, num_channels=2)`는 **단항(unary)** 커널에서 (컬럼,
+채널) 쌍마다 Worker 하나를 돌려 DDR 처리량을 두 배로 만든다. **바이너리**
+커널은 이미 컬럼당 MM2S shim 채널 두 개가 필요하다 — 입력마다 하나 —
+그런데 shim에는 정확히 두 개뿐이라, `num_channels=2`는 배치(placement)에
+실패한다:
+
+```
+error: no ShimNOCTile has sufficient DMA capacity for 0 input/1 output channels
+```
+
+2입력 커널은 `num_channels=1`을 유지하라.
+
+## M10. AIE2P(XDNA2)에서 bf16은 ¼ 속도다 — bf16 GEMM은 bfp16으로 돌려라
+
+bf16 MAC은 XDNA1의 AIE2에서는 네이티브지만 XDNA2의 AIE2P에서는 **bfp16
+데이터패스를 통해 약 ¼ 속도로 에뮬레이션**된다; 네이티브 모드는 bfp16 블록
+부동소수점(8×8×8)이다. 기본 제공 matmul들은 이 워크어라운드를 플래그로
+노출한다:
+
+```bash
+python whole_array.py … --dtype_in bf16 --dtype_out f32 --emulate-bf16-mmul-with-bfp16 1
+```
+
+여기서 측정한 값: 512³/32³-타일에서 +17%, 64×32×64 타일의 2048³에서 +25%
+(4.64 대 3.7 언저리 TFLOPS). 자세한 내용: [MLIR-AIE.md](MLIR-AIE.md) → GEMM
+교훈.
+
+## M11. 네이티브 bfp16은 K 타일 수가 늘면 정합성에 실패할 수 있다
+
+`ml/block_datatypes` 네이티브 bfp GEMM은 빠르게 보여도 결과가 틀릴 수 있다.
+CPU float 참조값과 비교하면 512³과 1024³은 통과하지만, 2048³은 실패한다
+(표본 1000개 중 291개, 최대 상대 오차 12%). M=N=1024에서는 K=1216이
+**PASS**, K=1280이 **FAIL**인 경계가 관측되었다.
+
+소스 검사로는 K 타일 사이에서 부분 출력이 bfp16으로 반복 재양자화되는 것으로
+보인다. 이는 K 의존성을 설명하지만 아직 검증된 수정안은 아니다. 네이티브 bfp
+처리량은 반드시 CPU 참조 **PASS**와 함께 보고해야 한다.
+[`check-bfp16-correctness.sh`](../scripts/check-bfp16-correctness.sh)는 이 알려진
+경계를 재현하고 단언한다.
