@@ -1,0 +1,160 @@
+**[🇬🇧 English](XDNA2.md) · [🇩🇪 Deutsch](XDNA2.de.md) · [🇫🇷 Français](XDNA2.fr.md) · [🇰🇷 한국어](XDNA2.ko.md) · [🇯🇵 日本語](XDNA2.ja.md)**
+
+# XDNA2 (Strix) — 무엇이 달라지고, 무엇이 이어지는가
+
+이 저장소는 **XDNA1**(Phoenix/Hawk Point)을 위한 검증된 지도다. XDNA1에서는
+소스에서 빌드한 `iree-amd-aie`가 여전히 Linux에서 NPU 연산을 돌리는 *유일한*
+길이다. 이 페이지는 **XDNA2**(Strix Point / Strix Halo / Krackan)에 대한 솔직한
+델타다: 이 저장소의 레시피와 도구 중 무엇이 그대로 이어지는지, 2세대에서 무엇이
+달라지는지, 그리고 열린 최전선이 지금 어디에 있는지.
+
+아래에는 두 종류의 주장이 있으며, 명확히 구분해 두었다:
+
+- **✅ 검증됨(Verified)** — 실제 XDNA2 머신에서 재현됨:
+  **Ryzen AI 9 HX PRO 370 (Strix Point) · Radeon 890M · Ubuntu 26.04 · kernel 7.0
+  · 인트리 `amdxdna` · NPU FW 1.1.2.64**.
+- **🔎 조사됨(Researched)** — 상류(upstream) 저장소/문서/벤치마크(2026년 8월)에서
+  취합했고, 인라인으로 링크를 달았으며, 여기서 아직 재현하지는 않았다.
+
+## TL;DR
+
+| | XDNA1 (이 저장소의 홈그라운드) | XDNA2 |
+|---|---|---|
+| Linux에서 턴키 LLM | ❌ 없음 — 출시된 모든 스택에서 제외됨 | ✅ FastFlowLM + Lemonade 10.0 (2026-03부터) |
+| XRT 유저스페이스 | 이 저장소대로 빌드/설치 | ✅ **Ubuntu 26.04가 기본 탑재로 배포** (`libxrt-npu2`) |
+| 커스텀 커널 (열린 경로) | `iree-amd-aie` / `mlir-aie` 소스 빌드 | 동일 스택, 지원은 더 좋아짐: IRON 1.4.x는 Strix를 일급(first-class)으로 다룬다 |
+| 기여가 살아 있는 곳 | *무엇이든* 돌아가게 만들기 | 오픈 커널 격차 메우기 (턴키 NPU 커널은 프로프라이어터리) |
+
+이 저장소가 가르치는 모든 것 — XRT 배관 작업, memlock/render 그룹 활성화,
+디스패치 오버헤드, Peano, IRON 커널 작성 — 은 **그대로 이어진다**. 달라지는 것은
+타깃 이름, 어레이 기하 구조, 그리고 "NPU에서 LLM 돌리기"가 XDNA2에서는 더 이상
+최전선이 아니라는 사실이다. 이제 최전선은 **열려 있고, 양자화되고, 튜닝된 커널**이다.
+
+## ✅ 검증됨: 오늘의 Strix Point 머신, 이 저장소의 도구 그대로
+
+XDNA2 머신에서 수정 없이 `scripts/check-npu.sh`를 실행하자 스크립트 버그
+두 개(둘 다 이 커밋에서 수정됨 — 아래 참조)와 다음의 실제 상태가 드러났다:
+
+```
+[1] amdxdna module loaded                       ✓
+[2] 1022:17f0 Strix/Krackan/Strix Halo NPU      ✓  (XDNA2)
+[3] /dev/accel/accel0 root:render 0660, RW      ✓
+[4] user in 'render' group                      ✓
+[5] memlock = 8192 KB                            ✗  ← the same old blocker
+[6] xrt-smi present (2.21.75) but:               ✗
+    mmap(len=64MB, MAP_LOCKED) failed (err=-11)
+[7] pyxrt present, cannot open device            ✗  (same cause)
+```
+
+특기할 만한 발견 세 가지:
+
+1. **Ubuntu 26.04는 XDNA2 XRT 유저스페이스를 기본으로 배포한다.** `libxrt2`,
+   `libxrt-npu2`, `libxrt-utils-npu`, `python3-xrt`(2.21.75)가 아카이브에서
+   곧바로 설치된다 — XDNA1에도 같은 패키지가 존재하지만 출시된 어떤 런타임도
+   모델을 실행해주지 않는 반면, XDNA2에서는 이것이 동작하는 런타임 경로다.
+2. **활성화를 가로막는 요인은 XDNA1과 한 바이트도 다르지 않다.** 8 MB
+   memlock 기본값이 xrt-smi의 64 MB `mmap(MAP_LOCKED)`를 `EAGAIN`으로 깨뜨린다 —
+   정확히 `scripts/enable-npu.sh`가 겨냥해 작성된 그 실패다. 이는 XDNA2에
+   **수정 없이 그대로** 적용된다(그리고 Ubuntu 26.04에서는 패키지 설치 단계가
+   이미 끝나 있다).
+3. **펌웨어는 출고 상태 그대로 최신이다**: FW 1.1.2.64가
+   `amdnpu/17f0_10/`에서 로드되었다 — FastFlowLM이 요구하는 ≥ 1.1.0.0 하한선을 넘는다.
+
+### XDNA1 도구를 XDNA2에 들이대자 드러난 스크립트 버그 (수정됨)
+
+- `check-npu.sh [1]`은 `pipefail` 아래에서 `lsmod | grep -q`를 사용했다: `grep -q`는
+  첫 매치에서 종료하고, `lsmod`는 SIGPIPE로 죽으며(exit 141), 파이프라인은 "실패"한다 —
+  모듈이 `lsmod` 출력의 앞쪽에 있을 때만 발동하는 경쟁적(racy) 거짓 음성이다
+  (갓 부팅한 Strix 머신에서는 그렇다). 이제는 `/sys/module/amdxdna`를 검사한다.
+- `check-npu.sh [2]`는 XDNA1의 lspci 문자열인 `IPU|AI`를 매칭했다. XDNA2는
+  `Neural Processing Unit`(디바이스 `17f0`)으로 enumerate 된다. 이제 검사 항목은
+  둘 다 매칭하고 어느 세대를 발견했는지 보고한다.
+
+## 🔎 이름 해독표 (세대 간 혼동의 1순위)
+
+| 레이어 | XDNA1 | XDNA2 Strix Point | 출처 |
+|---|---|---|---|
+| lspci | `AMD IPU Device` (`1502`) | `Neural Processing Unit` (`17f0`) | ✅ 두 머신 모두 |
+| XRT / xdna-driver | `RyzenAI-npu1` | `RyzenAI-npu4` (Halo=`npu5`, Krackan=`npu6`) | [xdna-driver](https://github.com/amd/xdna-driver) |
+| mlir-aie / IRON | `npu1` | `npu2` | [mlir-aie](https://xilinx.github.io/mlir-aie/) |
+| iree-amd-aie | `npu1_4col` | `npu4` | [iree-amd-aie](https://github.com/nod-ai/iree-amd-aie) |
+| ISA | AIE2 | AIE2P | [Peano](https://github.com/Xilinx/llvm-aie) |
+
+## 🔎 뒤집힌 지형: XDNA2에는 턴키가 존재한다 — 단, 함정이 하나 있다
+
+- **FastFlowLM**은 v0.9.35(2026-03-11)에서 네이티브 Linux 지원을 출시했는데,
+  **XDNA2 전용**이다 — XDNA1은 여전히 제외되어 있으며, 이 저장소의 소스 빌드
+  경로가 유일한 XDNA1 길로 남는 이유가 바로 그것이다. FLM v1.0.0은 AMD의
+  [ROCm GitHub org](https://github.com/ROCm/FastFlowLM)로 이동했다(2026-08).
+  **Lemonade 10.0**은 이를 OpenAI 호환 서버로 감싼다
+  ([Linux 가이드](https://lemonade-server.ai/flm_npu_linux.html)).
+- **함정은 이것이다:** FLM의 CLI는 MIT지만, 그 **NPU 커널은 무료로 쓸 수 있는
+  프로프라이어터리 바이너리**다. 이는 사용하는 제품이지, 커널 작성을 배울
+  코드베이스가 아니다. 오픈 커널 경로 — 이 저장소의 영역 — 가 이제 XDNA2
+  기여가 살아 있는 곳이다.
+- 세대와 무관하게 **Linux에는 여전히 없는 것**: ONNX Runtime의 Vitis AI EP
+  ([문서](https://onnxruntime.ai/docs/execution-providers/Vitis-AI-ExecutionProvider.html))
+  — 따라서 `npu-trim`의 그래프 선별(screen-the-graph) 접근은 XDNA2에서도 그 틈새를 유지한다.
+  Linux의 GAIA는 iGPU만 구동한다
+  ([amd/gaia#1220](https://github.com/amd/gaia/issues/1220)이 NPU 경로를 요청하고 있다).
+
+## 자산별 정리: 이 저장소에서 XDNA2로 이식되는 것
+
+| 자산 | XDNA2 상태 | 달라지는 것 |
+|---|---|---|
+| `scripts/check-npu.sh` | ✅ 동작함 (이 커밋) | XDNA2 PCI 문자열 + 세대 보고 추가됨 |
+| `scripts/enable-npu.sh` | ✅ **수정 없이** 동작함 | 동일한 3가지 차단 요인; Ubuntu 26.04가 패키지를 미리 설치해 둔다 |
+| `scripts/build.sh` (iree-amd-aie) | 🔎 이식될 것 | `npu4`는 지원되는 타깃이다; 프로젝트는 활발하다(Peano npu4용 softmax ukernel, ERT_CMD_CHAIN 배칭). 커밋 동기화(commit-lockstep) gotcha(고정된 xdna-driver)는 남아 있다 |
+| `scripts/run-matmul.sh` | 🔎 이식될 것 | 타깃 `npu1_4col` → `npu4`; `amdxdna` HAL 플래그는 그대로다 |
+| `tools/npu-runner` | 🔎 이식될 것 | IREE C API는 변경 없음 — npu4 빌드에 맞춰 재컴파일 |
+| `tools/npu-trim` | ✅ 개념 그대로 유효 | op 커버리지 최전선은 이동하지만 접근법은 동일; 이를 대체할 벤더 EP는 Linux에 여전히 없다 |
+| `mlir-aie` (IRON) 트랙 | 🔎 **가장 유력한 경로** | IRON [1.4.x](https://github.com/Xilinx/mlir-aie/releases): Strix가 일급 지원(`npu2`), **이제 Peano가 기본 백엔드**(우리는 어차피 빌드했다), **HRX** = XRT 없는 호스트 런타임 옵션; [amd/IRON](https://github.com/amd/IRON)은 미리 빌드된 op 라이브러리(GEMM, GEMV, MHA, GQA, RMSNorm, RoPE, softmax, dequant)를 pip wheel로 배포한다 |
+
+## 🔎 커널을 작성할 때 중요한 하드웨어 델타
+
+- **기하 구조**: npu1은 4컬럼 어레이다; Strix Point(`npu4`)는 **4행 × 8컬럼 —
+  컴퓨트 타일 32개 + 메모리 타일 8개**로, 컬럼 경계에서 파티션 가능하며,
+  펌웨어가 컨텍스트 스케줄링을 관리한다
+  ([커널 문서](https://docs.kernel.org/accel/amdxdna/amdnpu.html)).
+- **데이터타입**: AIE2P의 간판은 **bfp16 블록 부동소수점(block floating point)**이다 —
+  값 8개가 8비트 지수 하나를 공유해, 값 8개당 9바이트다. 지원 여부는 feature flag가
+  아니라 mlir-aie에 하드코딩된 약 450개 이상의 `__AIE_ARCH__` 조건으로 갈리는데 —
+  이는 이식의 위험 요소인 동시에 이름이 붙은 기여 지점이다
+  ([mlir-aie#3390](https://github.com/Xilinx/mlir-aie/discussions/3390)).
+- **ISA**: 공식 매뉴얼은 여전히 없지만 사실상 열려 있다 — Peano가 공개 LLVM에서
+  이를 구현하고 있으며, [Hello XDNA](https://tnzr.org/xdna/isa.html)는 명령어별
+  레이턴시와 함께 XDNA1/XDNA2 ISA를 재구성해 놓았다.
+
+## 🔎 측정된 현실: XDNA2 NPU 위의 LLM (커널이 최전선인 이유)
+
+- 50-TOPS XDNA2에서의 FLM: Llama 3.1 8B는 @1k ctx에서 **prefill 403 t/s**, decode
+  12.8 t/s; gpt-oss-20b는 decode 18.2 @1k → 12.0 @32k
+  ([FLM 벤치마크](https://fastflowlm.com/docs/benchmarks/llama3_results/)).
+- 동일 실리콘 비교: NPU는 iGPU Vulkan 대비 **prefill 약 1.5배** 앞서고, decode는
+  약 25% 뒤지며, 에너지 효율은 최대 약 10배 좋다. decode는
+  메모리 대역폭 물리 법칙(CPU/iGPU/NPU가 공유하는 ~120 GB/s LPDDR5X)의 문제다 —
+  어떤 엔진도 여기서 벗어나지 못한다.
+- 오픈 코드의 눈금 조정점: 단순한(naive) 오픈 XRT 디스패치 llama.cpp 포크
+  ([OllamaAMDNPU](https://github.com/BrandedTamarasu-glitch/OllamaAMDNPU),
+  Strix Halo)는 prefill 18.4 t/s, decode 1.4 t/s에 도달한다 — FLM의 prefill
+  300–400 t/s와의 격차는 **디스패치 배관이 아니라 커널/데이터플로 설계**다.
+- 이치에 맞는 아키텍처는 **NPU-prefill + iGPU-decode 하이브리드**다 —
+  정확히 AMD 자신의 Windows 스택이 작업을 나누는 방식이다.
+
+## 다음으로 갈 곳
+
+1. **matmul 레시피와 `npu-runner`를 `npu4`로 이식**하고, XDNA1 대
+   XDNA2 수치를 나란히 공개한다(README와 같은 표로).
+2. **4×8 어레이에서 IRON GEMM/GQA를 재현**한다(mlir-aie 1.4.x; XRT 의존성을
+   떨어내기 위해 HRX를 시도).
+3. **양자화 prefill GEMM** — IRON 플로를 통한 W4A16(그리고 bfp16을 활용하는)
+   커널; [TileFuse](https://arxiv.org/abs/2606.11357)가 그 레시피를 공개했다
+   (전정밀도 NPU 베이스라인 대비 GEMV 최대 +281%).
+   [amd/IRON](https://github.com/amd/IRON) 라이브러리에는 dequant는 있지만
+   **Q4/MXFP4 GEMM은 없다** — 그 격차는 실재하며, llama.cpp에는 아직 아무도
+   맡지 않은 열린 ggml-xdna 백엔드 요청
+   ([#21725](https://github.com/ggml-org/llama.cpp/issues/21725))이
+   메인테이너 눈에 띄는 착륙 지점으로 존재한다.
+
+*상태: 2026-08-15에 페이지 추가. ✅ 항목들은 그날 위의 Strix Point 머신에서
+재현되었고, 🔎 항목들은 출처를 인라인으로 달고 있다.*

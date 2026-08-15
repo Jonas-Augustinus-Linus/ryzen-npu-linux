@@ -23,6 +23,13 @@ NPU der **ersten Generation (XDNA1 / „Phoenix")** von *treibersichtbar-aber-un
 > ausführen.** Der eine offene Weg, der *tatsächlich* auf XDNA1 abzielt, ist `iree-amd-aie` — aus dem
 > Quellcode gebaut. Dieses Repository ist die verifizierte, Stolperstein-für-Stolperstein-Karte dieses Weges.
 
+> 🆕 **Auf XDNA2 (Strix/Krackan)?** Die zweite Generation hat die Lage gedreht:
+> Turnkey-LLM-Inferenz existiert jetzt unter Linux (FastFlowLM/Lemonade),
+> Ubuntu 26.04 liefert den XRT-Userspace nativ mit — und das
+> Aktivierungs-Tooling dieses Repos funktioniert dort **unverändert**
+> (verifiziert auf einem Ryzen AI 9 HX PRO 370). Was übertragbar ist, was sich
+> ändert und wohin die offene Front gewandert ist: **[docs/XDNA2.de.md](docs/XDNA2.de.md)**.
+
 ## 🎬 Demos
 
 **Durchgängig — ein ONNX MLP auf der NPU** (Matmuls auf der NPU, `ReLU` auf der CPU; stimmt mit der CPU-Referenz auf ~0.3% überein):

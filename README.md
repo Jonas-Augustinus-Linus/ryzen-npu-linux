@@ -23,6 +23,12 @@ A reproducible, end-to-end recipe — with tools — for taking an AMD Ryzen AI
 > it.** The one open path that *does* target XDNA1 is `iree-amd-aie` — built from
 > source. This repo is the verified, gotcha-by-gotcha map of that path.
 
+> 🆕 **On XDNA2 (Strix/Krackan)?** The second generation flipped the landscape:
+> turnkey LLM inference now exists on Linux (FastFlowLM/Lemonade), Ubuntu 26.04
+> ships the XRT userspace natively — and this repo's activation tooling works
+> there **unchanged** (verified on a Ryzen AI 9 HX PRO 370). What transfers,
+> what changes, and where the open frontier moved: **[docs/XDNA2.md](docs/XDNA2.md)**.
+
 ## 🎬 Demos
 
 **End-to-end — an ONNX MLP on the NPU** (matmuls on the NPU, `ReLU` on the CPU; matches the CPU reference to ~0.3%):

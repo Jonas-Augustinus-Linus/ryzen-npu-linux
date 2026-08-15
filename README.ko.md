@@ -21,6 +21,12 @@ AMD Ryzen AI **1세대(XDNA1 / "Phoenix")** NPU를 *드라이버에는 보이지
 > 그 위에서 모델을 실행해주지 않는다.** XDNA1을 *실제로* 타깃하는 유일하게 열린 경로는 `iree-amd-aie`이며,
 > 이는 소스에서 빌드해야 한다. 이 저장소는 그 경로를 검증하고 gotcha 하나하나까지 짚어낸 지도다.
 
+> 🆕 **XDNA2(Strix/Krackan) 사용자라면?** 2세대에서 지형이 뒤집혔다: Linux에서
+> 턴키 LLM 추론이 이제 존재하고(FastFlowLM/Lemonade), Ubuntu 26.04는 XRT
+> 유저스페이스를 기본 패키지로 제공하며 — 이 저장소의 활성화 도구는 거기서
+> **무수정으로** 동작한다(Ryzen AI 9 HX PRO 370에서 검증). 무엇이 이식되고,
+> 무엇이 바뀌었으며, 열린 최전선이 어디로 옮겨갔는지: **[docs/XDNA2.ko.md](docs/XDNA2.ko.md)**.
+
 ## 🎬 데모
 
 **엔드투엔드 — NPU에서 실행하는 ONNX MLP** (matmul은 NPU에서, `ReLU`는 CPU에서; CPU 레퍼런스와 ~0.3% 이내로 일치):

@@ -23,6 +23,13 @@ Une recette reproductible et de bout en bout — avec ses outils — pour faire 
 > La seule voie ouverte qui *cible* effectivement XDNA1 est `iree-amd-aie` — compilé depuis
 > les sources. Ce dépôt est la carte vérifiée, piège par piège, de cette voie.
 
+> 🆕 **Sur XDNA2 (Strix/Krackan) ?** La deuxième génération a renversé le
+> paysage : l'inférence LLM clé en main existe désormais sous Linux
+> (FastFlowLM/Lemonade), Ubuntu 26.04 fournit nativement l'userspace XRT — et
+> l'outillage d'activation de ce dépôt y fonctionne **sans modification**
+> (vérifié sur un Ryzen AI 9 HX PRO 370). Ce qui se transfère, ce qui change,
+> et où s'est déplacée la frontière ouverte : **[docs/XDNA2.fr.md](docs/XDNA2.fr.md)**.
+
 ## 🎬 Démos
 
 **De bout en bout — un MLP ONNX sur le NPU** (matmuls sur le NPU, `ReLU` sur le CPU ; correspond à la référence CPU à ~0.3% près) :

@@ -6,6 +6,7 @@
 # permissions -> memlock -> XRT runtime -> Python binding.
 #
 # Tested on: Ryzen 7 PRO 7840U (Phoenix / XDNA1), Ubuntu 26.04, kernel 7.0.
+#            Ryzen AI 9 HX PRO 370 (Strix Point / XDNA2), Ubuntu 26.04, kernel 7.0.
 set -uo pipefail
 
 pass() { printf '  \033[32m✓\033[0m %s\n' "$1"; }
@@ -15,12 +16,21 @@ info() { printf '  \033[36mi\033[0m %s\n' "$1"; }
 echo "== AMD NPU (XDNA) readiness check =="
 
 echo "[1] Kernel driver (amdxdna)"
-if lsmod | grep -q '^amdxdna'; then pass "amdxdna module loaded"; else fail "amdxdna NOT loaded (need kernel >= 6.14, or AMD out-of-tree xdna-driver)"; fi
+# NOTE: not `lsmod | grep -q` — under pipefail, grep -q exiting on first match
+# SIGPIPEs lsmod (racy false negative when the module sits early in the list).
+if [ -d /sys/module/amdxdna ]; then pass "amdxdna module loaded"; else fail "amdxdna NOT loaded (need kernel >= 6.14, or AMD out-of-tree xdna-driver)"; fi
 
 echo "[2] PCI device"
-if lspci 2>/dev/null | grep -qiE 'Signal processing controller.*(IPU|AI)'; then
-  pass "$(lspci 2>/dev/null | grep -iE 'Signal processing controller.*(IPU|AI)')"
-else info "IPU not obviously visible in lspci (not fatal)"; fi
+# XDNA1 (Phoenix/Hawk Point) enumerates as "IPU"/"AI"; XDNA2 (Strix/Krackan)
+# as "Neural Processing Unit".
+NPU_PCI=$(lspci -nn 2>/dev/null | grep -iE 'Signal processing controller.*(IPU|Neural Processing Unit|\bAI\b)')
+if [ -n "$NPU_PCI" ]; then
+  pass "$NPU_PCI"
+  case "$NPU_PCI" in
+    *1502*) info "device 1502 = XDNA1 (Phoenix/Hawk Point) — this repo's verified from-source path applies" ;;
+    *17f0*) info "device 17f0 = XDNA2 (Strix/Krackan/Strix Halo) — see docs/XDNA2.md for what changes" ;;
+  esac
+else info "NPU not obviously visible in lspci (not fatal)"; fi
 
 echo "[3] Device node /dev/accel/accel0"
 if [ -e /dev/accel/accel0 ]; then
@@ -42,7 +52,13 @@ if command -v xrt-smi >/dev/null; then
   pass "xrt-smi: $(command -v xrt-smi)"
   if xrt-smi examine 2>/dev/null | grep -qiE 'RyzenAI-npu|NPU Firmware'; then
     pass "xrt-smi sees the NPU:"; xrt-smi examine 2>/dev/null | grep -iE 'NPU Firmware|RyzenAI-npu|Device\(s\) Present' | sed 's/^/      /'
-  else fail "xrt-smi installed but does not enumerate the NPU"; fi
+  else
+    fail "xrt-smi installed but does not enumerate the NPU"
+    ML=$(ulimit -l)
+    if [ "$ML" != "unlimited" ] && [ "${ML:-0}" -lt 65536 ] 2>/dev/null; then
+      info "likely cause: the low memlock from [5] — xrt-smi's 64MB mmap(MAP_LOCKED) fails with EAGAIN. Fix [5], re-login, retry."
+    fi
+  fi
 else fail "xrt-smi missing — install: sudo apt install libxrt-utils-npu python3-xrt"; fi
 
 echo "[7] Python binding (pyxrt)"

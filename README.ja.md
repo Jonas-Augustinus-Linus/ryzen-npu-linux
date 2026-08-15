@@ -22,6 +22,13 @@ AMD Ryzen AI **第1世代（XDNA1 / "Phoenix"）** NPU を *ドライバから�
 > 唯一のオープンな道が `iree-amd-aie` — ソースからビルドしたものだ。このリポジトリは、その道のりを
 > 落とし穴ごとに検証したマップである。
 
+> 🆕 **XDNA2（Strix/Krackan）を使っているなら？** 第2世代で状況は一変した:
+> Linux 上のターンキー LLM 推論が今や存在し（FastFlowLM/Lemonade）、Ubuntu 26.04
+> は XRT ユーザースペースをネイティブに同梱する — そして本リポジトリの
+> アクティベーション用ツール群はそこで**無改変のまま**動作する
+> （Ryzen AI 9 HX PRO 370 で検証済み）。何が移植でき、何が変わり、
+> オープンな最前線がどこへ移ったか: **[docs/XDNA2.ja.md](docs/XDNA2.ja.md)**.
+
 ## 🎬 デモ
 
 **エンドツーエンド — NPU 上の ONNX MLP**（matmul は NPU 上で、`ReLU` は CPU 上で実行。CPU リファレンスと約 ~0.3% の差で一致）:
