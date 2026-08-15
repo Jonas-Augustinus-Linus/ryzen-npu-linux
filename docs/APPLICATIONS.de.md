@@ -76,8 +76,11 @@ ohne Python-Bindings kompiliert und liefert **kein `iree-import-onnx`** mit; du 
 **linalg-Level-MLIR**. Um ein echtes Modell zu importieren, musst du **IREE neu bauen** mit
 jenen Frontends ON. (b) Jede nicht unterstützte Op (softmax bis #21633, Attention,
 layernorm, depthwise, Embeddings, dynamische Shapes) ist ein **harter Compile-Fehler**, also
-musst du sie vermeiden oder auf der CPU halten. (c) Du tunst die Tiling-Flags von Hand. Es gibt **keinen
-In-Repo-Ganzmodell-(ResNet/MLP/Transformer-)e2e-Test, der auf npu1 besteht.**
+musst du sie vermeiden oder auf der CPU halten. (c) Du tunst die Tiling-Flags von Hand.
+Das Repo enthält jetzt einen **hybriden ONNX-MLP-e2e**: `npu-trim` extrahiert die
+beiden Matmuls, der persistente Runner führt sie auf XDNA1 oder Strix Point npu4
+aus, und ReLU bleibt ausdrücklich auf der CPU. Das ist kein vollständiger
+ResNet-/Transformer-Graph in einem VMFB; ein solcher e2e wird nicht behauptet.
 
 **Gemessene Obergrenze auf dieser Kiste:** bf16-matmul **~220 GFLOP/s bei 1024³** (native
 Stärke), `i32` ~6 GFLOP/s (nicht der native Typ der AIE), kleine matmuls sind

@@ -1,18 +1,19 @@
 **[🇬🇧 English](README.md) · [🇩🇪 Deutsch](README.de.md) · [🇫🇷 Français](README.fr.md) · [🇰🇷 한국어](README.ko.md) · [🇯🇵 日本語](README.ja.md)**
 
-# Echte Berechnungen auf einer Ryzen AI **XDNA1** NPU unter **Linux** ausführen
+# Offenes Ryzen-AI-**XDNA1- und XDNA2**-Computing unter **Linux**
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![Release](https://img.shields.io/github/v/release/Jonas-Augustinus-Linus/ryzen-npu-linux)](https://github.com/Jonas-Augustinus-Linus/ryzen-npu-linux/releases)
 ![Platform: Linux](https://img.shields.io/badge/platform-Linux-1793D1?logo=linux&logoColor=white)
-![NPU: Ryzen AI XDNA1](https://img.shields.io/badge/NPU-Ryzen%20AI%20XDNA1-ED1C24?logo=amd&logoColor=white)
+![NPU: Ryzen AI XDNA1 and XDNA2](https://img.shields.io/badge/NPU-XDNA1%20%2B%20XDNA2-ED1C24?logo=amd&logoColor=white)
 [![Built with iree-amd-aie](https://img.shields.io/badge/built%20with-iree--amd--aie-FF7139)](https://github.com/nod-ai/iree-amd-aie)
 ![matmul on NPU: working](https://img.shields.io/badge/matmul%20on%20NPU-working-success)
 ![bf16 ~220 GFLOP/s](https://img.shields.io/badge/bf16-~220%20GFLOP%2Fs-brightgreen)
 
-Ein reproduzierbares, durchgängiges Rezept — samt Werkzeugen —, um eine AMD Ryzen AI
-NPU der **ersten Generation (XDNA1 / „Phoenix")** von *treibersichtbar-aber-untätig* zu
-**tatsächlich Matmuls ausführend** unter Linux zu bringen, indem
-[`nod-ai/iree-amd-aie`](https://github.com/nod-ai/iree-amd-aie) aus dem Quellcode gebaut wird.
+Ein offener, reproduzierbarer Weg von *treibersichtbar-aber-untätig* zu echtem,
+CPU-geprüftem NPU-Computing unter Linux. Er bewahrt den ursprünglichen
+XDNA1/Phoenix-Quellpfad und bringt denselben Vertrag aus Erkennen → Bauen →
+Prüfen → persistentem Runner auf Strix Point XDNA2 (`RyzenAI-npu4`).
 
 > **Warum dieses Repository existiert.** Fast jeder Artikel von 2026 nach dem Motto „die Ryzen AI NPU
 > funktioniert endlich unter Linux" handelt von **XDNA2** (Strix/Krackan). Die
@@ -23,7 +24,7 @@ NPU der **ersten Generation (XDNA1 / „Phoenix")** von *treibersichtbar-aber-un
 > ausführen.** Der eine offene Weg, der *tatsächlich* auf XDNA1 abzielt, ist `iree-amd-aie` — aus dem
 > Quellcode gebaut. Dieses Repository ist die verifizierte, Stolperstein-für-Stolperstein-Karte dieses Weges.
 
-> 🆕 **Auf XDNA2 (Strix/Krackan)?** Die zweite Generation hat die Lage gedreht:
+> 🆕 **Auf XDNA2 Strix Point (`RyzenAI-npu4`)?** Die zweite Generation hat die Lage gedreht:
 > Turnkey-LLM-Inferenz existiert jetzt unter Linux (FastFlowLM/Lemonade),
 > Ubuntu 26.04 liefert den XRT-Userspace nativ mit — und das
 > Aktivierungs-Tooling dieses Repos funktioniert dort **unverändert**
@@ -32,8 +33,37 @@ NPU der **ersten Generation (XDNA1 / „Phoenix")** von *treibersichtbar-aber-un
 > das vollständige MobileNet, unser eigener Kernel mit 8.0×-Spalten-Skalierung
 > ([docs/MLIR-AIE.de.md](docs/MLIR-AIE.de.md)). Was übertragbar ist, was sich
 > ändert und wohin die offene Front gewandert ist: **[docs/XDNA2.de.md](docs/XDNA2.de.md)**.
+> Spätere `npu5`/`npu6`-Geräte werden nicht stillschweigend zugeordnet oder
+> beansprucht; siehe die genaue [Support-Matrix](docs/SUPPORT.md).
+
+## 🌱 Warum wir dies frei weitergeben
+
+Der Weg auf einem einzigen Rechner ist nicht das Ziel. Dieses Repository steht
+unter der MIT-Lizenz und wird kostenlos veröffentlicht, damit Linux-Nutzer jede
+Schicht prüfen, die Ergebnisse wiederholen, Kernels verändern und Verbesserungen
+zurückgeben können. Wir hoffen, dass Lernende, unabhängige Entwickler, Forschung
+und kleine Teams darauf **viele verschiedene LLMs und lokale KI-Systeme** bauen:
+private Agents, Barrierefreiheit, mehrsprachige Modelle, stromsparende Dienste,
+neue Quantisierung und Anwendungen, an die wir noch gar nicht gedacht haben.
+
+Dies ist eine Grundlage, keine Behauptung, dass jedes LLM bereits durchgängig
+läuft. Die Grundlage ist konkret: strikte Geräteerkennung, gepinnte Builds,
+CPU-Referenzkorrektheit, persistente C-/Python-Aufrufe, funktionierende Beispiele
+und öffentliche Fehlergrenzen. Erfolg bedeutet, dass andere darauf aufbauen
+können. Siehe die [offene LLM-Roadmap](docs/LLM-ROADMAP.md) und den
+[Beitragsleitfaden](CONTRIBUTING.md).
 
 ## 🎬 Demos
+
+### XDNA2 / Strix Point — Live-Hardware
+
+IREE-`npu4`-Matmuls in i32 und bf16 stimmen exakt mit ihren CPU-Referenzen
+überein, der persistente Runner prüft alle 16.384 Ausgaben, und der eigene
+IRON-Kernel besteht auf allen 8 Spalten sowohl mit XRT als auch mit HRX:
+
+![XDNA2-Strix-Point-Live-Hardware-Demo mit exakten CPU-Vergleichen, vollständiger npu-runner-Ausgabeprüfung sowie IRON-Pässen mit XRT und HRX](docs/media/xdna2-compute.gif)
+
+### XDNA1 / Phoenix — ursprüngliche verifizierte Demos
 
 **Durchgängig — ein ONNX MLP auf der NPU** (Matmuls auf der NPU, `ReLU` auf der CPU; stimmt mit der CPU-Referenz auf ~0.3% überein):
 
@@ -60,6 +90,8 @@ wiederholbar:
 
 Getestete Maschine: **Lenovo ThinkPad T16 Gen2 · Ryzen 7 PRO 7840U (Phoenix, XDNA1)
 · Radeon 780M · Ubuntu 26.04 · Kernel 7.0 · In-Tree-`amdxdna` · XRT 2.21 · NPU FW 1.5.5.391**.
+Diese XDNA1-Messungen sind historische Werte des damals aktuellen Nightly; mit dem
+aktuellen exakten v1-Pin, der auf Strix erneut verifiziert wurde, wurden sie noch nicht wiederholt.
 
 ## 📊 Benchmarks
 
@@ -83,22 +115,26 @@ während `i32` (nicht der native Typ der AIE) bei etwa 6 GFLOP/s an seine Grenze
 ## 🚀 Schnellstart
 
 ```bash
-git clone https://github.com/<you>/ryzen-npu-linux.git && cd ryzen-npu-linux
+git clone https://github.com/Jonas-Augustinus-Linus/ryzen-npu-linux.git
+cd ryzen-npu-linux
 
-# 0. Is the NPU even alive? (read-only diagnostic)
-./scripts/check-npu.sh
+# Host-/Platten-/sudo-Anforderungen lesen, dann strikt und nur-lesend prüfen.
+less docs/SUPPORT.md
+./scripts/check-npu.sh --strict
 
-# 1. (if check failed on groups/memlock/xrt) activate it for your user, then reboot once
-#    (why a re-login is not enough on a systemd desktop: docs/GOTCHAS.md #0)
+# Nur bei Gruppen-/memlock-/XRT-Fehlern: prüfen, ausführen, einmal neu starten.
 ./scripts/enable-npu.sh
 
-# 2. Build iree-amd-aie from source (~65 min, 30-60 GB disk). All workarounds baked in.
+# Den in versions.lock gepinnten IREE-/Peano-Stack aus dem Quellcode bauen; dabei
+# wird auch libxrt-dev für die nativen IRON-Hostprüfungen von --full installiert.
 ./scripts/build.sh
 
-# 3. Run a matmul ON THE NPU
-./scripts/run-matmul.sh i32          # 128x128x128, all 768
-./scripts/run-matmul.sh bf16         # 256x256x256 bf16->f32, all 1536
-BENCH=1 ./scripts/run-matmul.sh bf16 # + benchmark
+# Öffentlicher Akzeptanzvertrag: Erkennung -> CPU-Referenzen -> C/Python-Runner.
+./scripts/verify-stack.sh --quick
+
+# Optional den separat gepinnten IRON-Stack einrichten, dann alles prüfen.
+./scripts/setup-mlir-aie.sh
+./scripts/verify-stack.sh --full
 ```
 
 ## 🧰 Die Werkzeuge
@@ -107,16 +143,21 @@ BENCH=1 ./scripts/run-matmul.sh bf16 # + benchmark
 |---|---|
 | [`scripts/check-npu.sh`](scripts/check-npu.sh) | Nur-lesend: prüft Treiber, Geräteknoten, Render-Gruppe, memlock, XRT, pyxrt. |
 | [`scripts/enable-npu.sh`](scripts/enable-npu.sh) | Behebt die 3 Dinge, die einen Nicht-Root-Benutzer blockieren (Render-Gruppe, memlock, XRT). |
-| [`scripts/build.sh`](scripts/build.sh) | Klont + baut `iree-amd-aie` mit allen angewendeten Workarounds. |
-| [`scripts/run-matmul.sh`](scripts/run-matmul.sh) | Kompiliert + führt einen `i32`-/`bf16`-Matmul auf der NPU aus. Das Rezept. |
+| [`scripts/detect-npu.sh`](scripts/detect-npu.sh) | Ordnet nur verifizierte VBNV/Geometrien `npu1_4col` oder `npu4` zu; Unbekanntes wird abgelehnt. |
+| [`scripts/build.sh`](scripts/build.sh) | Baut den in `versions.lock` gepinnten IREE-/Peano-Stack. |
+| [`scripts/run-matmul.sh`](scripts/run-matmul.sh) | Kompiliert, startet und prüft alle `i32`-/`bf16`-Ausgaben gegen die CPU. |
+| [`scripts/verify-stack.sh`](scripts/verify-stack.sh) | Strikter Hardware-Akzeptanztest für CLI, nativen/Python-Runner und optionale Apps/IRON. |
+| [`scripts/validate-repo.sh`](scripts/validate-repo.sh) | Hardwarefreie lokale/CI-Release-Prüfungen. |
 
 ## 🧩 Zweiter Weg: `mlir-aie` (IRON)
 
 `iree-amd-aie` (oben) kompiliert **ganze Graphen**;
 [`Xilinx/mlir-aie`](https://github.com/Xilinx/mlir-aie) (IRON) ist der hardwarenähere
 Weg — du **verfasst NPU-Kernels direkt** und führst sie via `pyxrt` aus, und er liefert
-echte ML-`programming_examples` mit. Verifiziert auf **beiden Generationen** (`npu1` Phoenix
-und `npu2` Strix — automatisch erkannt). Das Setup nutzt das Peano von iree-amd-aie nur
+echte ML-`programming_examples` mit. Für **beide Generationen** gibt es Hardwarebelege,
+aber nicht mit demselben Abhängigkeitsstand: Die Phoenix-/`npu1`-Ergebnisse sind historisch,
+der exakte v1-Pin wurde dagegen auf Strix/`npu2` erneut verifiziert (automatisch erkannt).
+Berichte mit dem aktuellen Pin auf XDNA1 sind willkommen. Das Setup nutzt das Peano von iree-amd-aie nur
 dann wieder, wenn sowohl dessen exakte `llvm-aie`-Version als auch der **clang-Build-Commit**
 zum Pin dieser mlir-aie-Version in `utils/peano-requirements.txt` passen; andernfalls
 installiert es das gepinnte Wheel in die mlir-aie-venv. Vollständiger Leitfaden → **[docs/MLIR-AIE.de.md](docs/MLIR-AIE.de.md)**.
@@ -153,7 +194,7 @@ Vollständige Details in **[docs/GOTCHAS.de.md](docs/GOTCHAS.de.md)**. Die Kurzl
 
 1. **Verwende `gcc`, nicht `clang`, als Host-Compiler.** clang 21 *segfaultet* beim Kompilieren von MLIR `BuiltinDialectBytecode.cpp`.
 2. **`-DIREE_BUILD_PYTHON_BINDINGS=OFF`.** Die Python-Bindings stoßen auf `-Werror,-Wmacro-redefined`; die CLI-Werkzeuge brauchen sie nicht.
-3. **Hebe den Peano-(`llvm-aie`-)Pin an.** Das im Repository gepinnte Nightly ist aus dem Index abgelaufen; `build.sh` wählt automatisch das neueste aus.
+3. **Verwende das fixierte Peano (`llvm-aie`).** `build.sh` installiert und prüft exakt den Pin aus `versions.lock`; statt still ein neueres Nightly zu wählen, bricht es ab.
 4. **`-DIREE_ERROR_ON_MISSING_SUBMODULES=OFF`.** Du überspringst absichtlich 3 schwergewichtige Submodule.
 5. **Kompiliere mit `--iree-amdaie-device-hal=amdxdna`** (+ `--iree-hal-indirect-command-buffers=false --iree-hal-memoization=false`), sonst läuft der Dispatch in ein Timeout.
 6. ⚠️ **Führe mit `--amdxdna_n_core_cols=4` aus, nicht 5.** Phoenix meldet 5 Roh-Spalten, nutzt aber 4 (`npu1_4col`). Übergabe von 5 → Cores hängen → `ert state 8`-Timeout.
@@ -181,18 +222,17 @@ Treiber, Compiler und Laufzeitumgebung gehen ihm allesamt voraus und leisten die
 | Schicht | Vorarbeit, auf der wir aufbauen / neben der wir stehen |
 |---|---|
 | Kernel-Treiber | [`amd/xdna-driver`](https://github.com/amd/xdna-driver) — `amdxdna`, seit Linux 6.14 im Mainline, enumeriert XDNA1 als `/dev/accel/accel0` |
-| Compiler / Laufzeitumgebung | [`nod-ai/iree-amd-aie`](https://github.com/nod-ai/iree-amd-aie), [`Xilinx/mlir-aie`](https://github.com/Xilinx/mlir-aie) (IRON), [`Xilinx/llvm-aie`](https://github.com/Xilinx/llvm-aie) (Peano), [`amd/Triton-XDNA`](https://github.com/amd/Triton-XDNA) — SDKs/Frameworks, die für `npu1` kompilieren |
+| Compiler / Laufzeitumgebung | [`nod-ai/iree-amd-aie`](https://github.com/nod-ai/iree-amd-aie), [`Xilinx/mlir-aie`](https://github.com/Xilinx/mlir-aie) (IRON), [`Xilinx/llvm-aie`](https://github.com/Xilinx/llvm-aie) (Peano), [`amd/Triton-XDNA`](https://github.com/amd/Triton-XDNA) — vorgelagerte SDKs/Frameworks für XDNA-Generationen |
 | Frühere XDNA1- + Linux-Berechnungen | ein Forschungspapier ([arXiv 2504.03083](https://arxiv.org/abs/2504.03083) — GPT-2 auf einem Phoenix 7940HS via IRON), reine Primitive-Tutorials, der [Gentoo-Wiki-XDNA-Beitrag](https://wiki.gentoo.org/wiki/User:Lockal/AMDXDNA) |
 | Schlüsselfertiges NPU-LLM unter Linux | FastFlowLM · Lemonade 10.x · AMD Ryzen AI SW — **alle nur XDNA2; sie schließen XDNA1 ausdrücklich aus** |
 
 „Erste NPU unter Linux", „erster Compiler" oder „erster, der XDNA1 ausführt" wären also
 allesamt übertriebene Behauptungen — und die stellen wir nicht auf.
 
-**Was dieses Repository *ist*:** soweit eine öffentliche Suche (2026-06) reicht, das erste
-— und einzige — **paketierte, reproduzierbare, durchgängige Rezept + Werkzeugset**, das
-*beliebige echte Berechnungen* (i32/bf16-Matmul, Conv) auf der **XDNA1-NPU der ersten
-Generation (Phoenix, z. B. 7840U) unter Linux** ausführt — genau die Hardware-/OS-Kombination,
-die jeder schlüsselfertige Anbieter-Stack verwaist zurücklässt. Die Vorarbeit ist entweder ein
+**Was dieses Repository *ist*:** ein **paketiertes, reproduzierbares, durchgängiges
+Rezept + Werkzeugset**. Es begann mit echtem Computing auf dem von Turnkey-Stacks
+ausgelassenen XDNA1/Phoenix-Pfad und gibt Strix Point npu4 nun denselben öffentlichen
+Korrektheitsvertrag. Die Vorarbeit ist entweder ein
 vorgelagertes **SDK/Framework** (die From-Source-Stolpersteine umschiffst du selbst), eine
 **nur-XDNA2**-App, ein **Forschungspapier** (kein Klick-und-los-Repository) oder ein
 **nur-Windows**-Rechenpfad. Das Unterscheidende ist das *Bündel*: Diagnose→Aktivierung→Build→Lauf-Skripte,
@@ -201,26 +241,29 @@ die From-Source-**Stolperstein-Karte**, der **persistente C-API-/ctypes-Runner**
 der **ehrlich machbarkeitsbewertete Anwendungsleitfaden** (inkl. des gemessenen „NPU verliert
 bei Audio gegen die CPU") und Dokumentation in 5 Sprachen.
 
-> **Ehrlicher Vorbehalt:** Diese Einordnung beruht auf einer öffentlichen Suche in READMEs und
-> Schnipseln (kein externes Repository wurde geklont/verifiziert). Wir **können** keine privaten
-> Repositories, Unternehmensarbeit oder den langen Schwanz an einmaligen Skripten sehen —
-> „wir haben keinen direkten Konkurrenten gefunden" heißt genau das, nicht „es existiert keiner".
+> **Ehrlicher Vorbehalt:** Das Ökosystem ändert sich schnell, private und interne
+> Arbeit bleibt unsichtbar. Bitte melde neuere Projekte oder Ergebnisse, die hier
+> gewürdigt oder verglichen werden sollten; eine bessere gemeinsame Karte hilft allen.
 
 ## ⚖️ Haftungsausschluss
 
 Community-Notizen, kein AMD-/Xilinx-Produkt. `iree-amd-aie` befindet sich in einer frühen Phase und
-bewegt sich schnell; Versionen/Flags driften. Alles hier wurde auf der exakten
-Maschine oben am 2026-06-22 verifiziert. Issues/PRs mit Ergebnissen von anderen XDNA1-Laptops sind willkommen.
+bewegt sich schnell; Versionen/Flags driften. Hardwarebelege sind datiert und pin-spezifisch:
+Die XDNA1-/Phoenix-Ergebnisse stammen historisch vom damals aktuellen Nightly, während der
+exakte v1-Pin bis zum 2026-08-15 auf Strix Point XDNA2 erneut verifiziert wurde. Für Hawk Point
+liegt noch kein Ergebnis vor. XDNA1-Ergebnisse mit dem aktuellen Pin und weitere
+XDNA1-/XDNA2-Ergebnisse sind mit genauer Geräteidentität und Prüfprotokoll willkommen.
 
 ## 🤝 Mitwirken
 
-Der nützlichste Beitrag ist **ein Ergebnis von deiner eigenen XDNA1-Maschine** — die
-Abdeckung von Ryzen AI der ersten Generation unter Linux ist dünn. Siehe **[CONTRIBUTING.md](CONTRIBUTING.md)**. Kurz gesagt:
+Der nützlichste Beitrag ist **ein reproduzierbares Ergebnis von deiner eigenen
+XDNA1- oder XDNA2-Maschine**. Siehe **[CONTRIBUTING.md](CONTRIBUTING.md)**. Kurz gesagt:
 
 - **Melde Hardware-Ergebnisse** — deinen Chip / Kernel / deine Distro und was funktioniert hat oder fehlschlug (Issue-Vorlage bereitgestellt).
 - **Füge Benchmarks** für weitere Formen/dtypes hinzu oder **neue Ops** (conv, i8, …).
 - **Behebe oder verfeinere einen [Stolperstein](docs/GOTCHAS.de.md)**, härte die Skripte ab oder füge eine Übersetzung hinzu/korrigiere sie.
-- Fork → branch → test mit `scripts/run-matmul.sh` → PR, der beschreibt, worauf du es ausgeführt hast.
+- Fork → Branch → `scripts/validate-repo.sh` und, falls Hardware betroffen ist,
+  `scripts/verify-stack.sh --quick` → PR mit den exakten Tests.
 
 ## 📄 Lizenz
 

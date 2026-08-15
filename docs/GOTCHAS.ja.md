@@ -9,10 +9,10 @@ Ubuntu 26.04、kernel 7.0、2026-06-22）で実際に遭遇し、解決したも
 
 ---
 
-## 0. limits.d は memlock `unlimited` と言っている — それでもターミナルは 8 MB のまま
+## 0. limits.d は memlock 1 GiB と言っている — それでもターミナルは 8 MiB のまま
 
-**症状。** `enable-npu.sh` は実行済み、`/etc/security/limits.d/99-xrt-npu.conf` には
-`unlimited` と書かれており、ログアウトして再ログインもした — それでもなお:
+**症状。** `enable-npu.sh` は実行済みで、`/etc/security/limits.d/` の UID 別ファイルには
+`1048576` KiB と書かれており、ログアウトして再ログインもした — それでもなお:
 
 ```
 $ ulimit -l
@@ -44,20 +44,25 @@ $ xrt-smi examine
   `user@<uid>.service` は **停止しません** — つまりサービス側を修正しても、再ログインで
   新しいリミットとともに再起動されることは決してありません。リブートだけがそれを行います。
 
-**修正方法**（現在の `enable-npu.sh` が行うこと）: PAM 経路のために limits.d のエントリを
-残しつつ、*さらに* ユーザーマネージャ用の drop-in を追加して、一度リブートします:
+**修正方法**（現在の `enable-npu.sh` が行うこと）: 選択したユーザーだけに、PAM 経路と
+UID 別ユーザーマネージャ drop-in の両方で有限の 1 GiB を設定し、一度リブートします:
 
 ```
-# /etc/systemd/system/user@.service.d/99-xrt-npu-memlock.conf
+# /etc/systemd/system/user@1000.service.d/99-xrt-npu-memlock.conf
+# （1000 は対象ユーザーの UID）
 [Service]
-LimitMEMLOCK=infinity
+LimitMEMLOCK=1073741824
 ```
+
+スクリプトは旧版が作成した正確な全ユーザー向け `infinity` ファイルだけを安全に
+無効化してバックアップし、管理者所有の内容を上書きせず、`--uninstall` に対応します。
+`MEMLOCK_KB` で 64 MiB～16 GiB の別の有限値を選択できます。
 
 リブートせずに、すでに実行中のシェルのブロックを解除するには（子プロセスは rlimit を
 継承します）:
 
 ```bash
-sudo prlimit --pid $$ --memlock=unlimited:unlimited
+sudo prlimit --pid $$ --memlock=1073741824:1073741824
 ```
 
 `check-npu.sh [5]` は現在、まさにこの分裂 — limits.d は許可しているのに、プロセスは
@@ -109,7 +114,7 @@ IREE の Python（nanobind）バインディングは feature-test-macro の再�
 
 ---
 
-## 3. ピン留めされた Peano（llvm-aie）バージョンが期限切れになっている
+## 3. upstream の Peano pin が失効した — nightly を暗黙に追わない
 
 **症状**
 ```
@@ -120,13 +125,13 @@ ERROR: Could not find a version that satisfies the requirement
 Xilinx の nightly インデックスは最近のビルドしか保持しません。そのピン（アップストリームでは
 約 13 か月間そのまま）はとうに消えています。
 
-**修正方法。** ピンを、入手可能な最新の nightly に向けます:
-```bash
-echo "<latest-nightly-version>" > build_tools/peano_commit_linux.txt
-bash build_tools/download_peano.sh
-```
-`scripts/build.sh` はインデックスを問い合わせて、これを自動で行います。新しい Peano は
-バージョンが飛んでいても問題なく動作します（AIE LLVM バックエンドであり、インターフェイスは安定しています）。
+**修正方法。** このリポジトリは、実機検証済みの Peano バージョンとコミットを
+`versions.lock` に記録します。`scripts/build.sh` は upstream の追跡ファイル
+`build_tools/peano_commit_linux.txt` を変更せず、その wheel だけをインストールし、
+バージョンのメタデータと `clang` コミットを検証します。アセットを取得できなければ、
+ビルドは意図的に失敗します。メンテナが代替版を検証し、レビュー対象の変更で
+`versions.lock` を更新して実機受入テストを再実行する必要があります。利用者が
+最新 nightly を暗黙に代用してはいけません。
 
 ---
 

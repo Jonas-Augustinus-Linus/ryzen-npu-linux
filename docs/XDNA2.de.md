@@ -2,9 +2,11 @@
 
 # XDNA2 (Strix) — was sich ändert, was sich überträgt
 
-Dieses Repo ist die verifizierte Karte für **XDNA1** (Phoenix/Hawk Point), wo aus dem
-Quellcode gebautes `iree-amd-aie` nach wie vor der *einzige* Weg ist, Berechnungen auf der
-NPU unter Linux auszuführen. Diese Seite ist das ehrliche **XDNA2**-Delta
+Die XDNA1-Hardware-Evidenz dieses Repos stammt von einem Phoenix / Ryzen 7 PRO
+7840U. Hawk Point teilt die zugeordnete `RyzenAI-npu1`-Identität, hat hier aber
+noch kein separates Hardware-Ergebnis. Für diesen dokumentierten XDNA1-Pfad ist
+das aus dem Quellcode gebaute `iree-amd-aie` der unter Linux verwendete
+Compute-Weg. Diese Seite ist das ehrliche **XDNA2**-Delta
 (Strix Point / Strix Halo / Krackan): was von den Rezepten und Werkzeugen dieses Repos
 sich überträgt, was die zweite Generation ändert und wo die offene Grenze jetzt liegt.
 
@@ -15,6 +17,12 @@ Unten stehen zwei Arten von Aussagen, klar getrennt:
   · In-Tree-`amdxdna` · NPU FW 1.1.2.64**.
 - **🔎 Recherchiert** — bezogen aus Upstream-Repos/-Docs/-Benchmarks (August 2026),
   inline verlinkt, hier noch nicht reproduziert.
+
+> **Die ausführbare Unterstützung dieses Releases ist enger als der Familienüberblick:**
+> Nur Strix Point `RyzenAI-npu4` / IREE `npu4` ist auf Hardware verifiziert und
+> wird automatisch zugeordnet. Strix Halo `npu5` und Krackan `npu6` dienen nur
+> als Kontext; `scripts/detect-npu.sh` lehnt sie ohne verifiziertes Target und
+> CPU-Referenzergebnis ab. Siehe [SUPPORT.md](SUPPORT.md).
 
 ## TL;DR
 
@@ -59,8 +67,10 @@ Drei Erkenntnisse, die sich festzuhalten lohnen:
    `pam_limits`-Mechanismus; ein GUI-Terminal ist ein Kind von `user@<uid>.service`
    und erbt stattdessen *dessen* 8 MB `LimitMEMLOCK`, und mit aktiviertem Lingering
    startet selbst ein Neu-Login diesen Service nie neu. `enable-npu.sh` schreibt jetzt
-   zusätzlich ein `user@.service`-Drop-in und wendet `prlimit` auf die aufrufende
-   Shell an — die vollständige Anatomie steht in [GOTCHAS #0](GOTCHAS.de.md).
+   ein UID-spezifisches `user@<uid>.service.d`-Drop-in, deaktiviert nur das exakt
+   von einer älteren Version verwaltete Wildcard-Drop-in und wendet `prlimit` auf
+   die aufrufende Shell an — die vollständige Anatomie steht in
+   [GOTCHAS #0](GOTCHAS.de.md).
 3. **Die Firmware ist ab Werk aktuell**: FW 1.1.2.64 geladen aus
    `amdnpu/17f0_10/` — oberhalb der Untergrenze von ≥ 1.1.0.0, die FastFlowLM verlangt.
 
@@ -89,6 +99,12 @@ Point ist für XRT `npu4`. Um bis *hierher* zu kommen, war kein Source-Build nö
 Aktivierung auf XDNA2/Ubuntu 26.04 ist Konfiguration, keine Kompilierung.
 
 ## ✅ Compute: verifiziert auf der XDNA2-NPU (dieselbe Maschine, 2026-08-15)
+
+**Live-Aufzeichnung auf echter Hardware:** exakte CPU-Referenzprüfungen mit IREE
+`npu4`, vollständige `npu-runner`-Ausgabeprüfung und der 8-Spalten-IRON-Kernel
+mit XRT und HRX:
+
+![Live-Verifikation von XDNA2-Strix-Point-Compute mit IREE, npu-runner, XRT und HRX](media/xdna2-compute.gif)
 
 Der IRON-Track lief noch am selben Tag, an dem die Aktivierung landete —
 `setup-mlir-aie.sh` unverändert, mlir-aie **1.4.1** (cp314-Wheel), Peano-Wheel,
@@ -177,7 +193,7 @@ Leistungsmessungen**.
 | Asset | XDNA2-Status | Was sich ändert |
 |---|---|---|
 | `scripts/check-npu.sh` | ✅ funktioniert (dieser Commit) | XDNA2-PCI-String + Generationsbericht; [6] SIGPIPE-Fix auf der Erfolgsseite; [5] diagnostiziert jetzt die pam-vs-systemd-Spaltung beim memlock |
-| `scripts/enable-npu.sh` | ✅ funktioniert (in diesem Commit erweitert) | dieselben 3 Blocker; Ubuntu 26.04 installiert die Pakete vor — aber auf einem systemd-Desktop braucht der memlock-Fix ein `user@.service`-Drop-in zusätzlich zu limits.d ([Stolperstein #0](GOTCHAS.de.md)) |
+| `scripts/enable-npu.sh` | ✅ funktioniert (in diesem Commit erweitert) | dieselben 3 Blocker; Ubuntu 26.04 installiert die Pakete vor — aber auf einem systemd-Desktop braucht der memlock-Fix zusätzlich zu limits.d ein UID-spezifisches `user@<uid>.service.d`-Drop-in; das Skript deaktiviert nur seine exakte alte Wildcard-Datei ([Stolperstein #0](GOTCHAS.de.md)) |
 | `scripts/build.sh` (iree-amd-aie) | ✅ auf Hardware verifiziert | Source-Build + Installation auf Strix abgeschlossen; begrenzte Parallelität verhindert den beobachteten OOM, die Abschlussprüfung verlangt sowohl `npu1_4col` als auch `npu4`; getestet mit Peano 22 `4a1adefa` |
 | `scripts/run-matmul.sh` | ✅ auf Hardware verifiziert | erkennt das 4×8-Grid und wählt `npu4`; i32 128³ und bf16 512³ kompilieren und laufen korrekt, der XDNA1-Pfad bleibt erhalten |
 | `tools/npu-runner` | ✅ auf Hardware verifiziert | C-API-Grid-Autoerkennung löst 4×8 auf; nativer Runner und ctypes/Python-Pfad verifizierten alle 16.384 i32-Ausgabewerte |

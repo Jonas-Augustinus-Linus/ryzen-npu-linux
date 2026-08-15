@@ -2,7 +2,15 @@
 
 # npu-runner — appelant persistant pour NPU AMD XDNA (API C du runtime IREE)
 
-![npu-runner demo](../../docs/media/npu-runner.gif)
+**XDNA2 / Strix Point — vérification actuelle en direct sur matériel réel :**
+les 16 384 sorties de `npu_runner` passent après les comparaisons exactes i32 et
+bf16 avec la référence CPU.
+
+![Vérification en direct de toutes les sorties de npu-runner sur XDNA2 Strix Point](../../docs/media/xdna2-compute.gif)
+
+**XDNA1 / Phoenix — enregistrement d'origine du runner persistant :**
+
+![Démo XDNA1 Phoenix de npu-runner](../../docs/media/npu-runner.gif)
 
 Charge un `.vmfb` **une seule fois** et invoque le NPU de nombreuses fois en cours de processus, au lieu de
 lancer `iree-run-module` à chaque appel. Mesuré sur un 7840U/XDNA1 : **~3,7 ms/invoke contre

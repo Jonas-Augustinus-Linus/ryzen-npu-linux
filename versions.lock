@@ -1,0 +1,62 @@
+# Reproducibility pins for the v1 public XDNA1/XDNA2 workflows.
+# This exact lock and acceptance contract were hardware-revalidated on Strix
+# Point XDNA2. Phoenix XDNA1 has earlier real-hardware evidence with the same
+# IREE source commit but a then-current Peano; reconfirmation of this exact
+# Peano 22 lock on XDNA1 is explicitly requested.
+#
+# This is a shell assignment file consumed by scripts/build.sh and
+# scripts/setup-mlir-aie.sh. Keep it data-only: NAME=value, with no commands.
+# Update a pin only after the complete build and hardware checks pass together.
+
+VERSIONS_LOCK_FORMAT=1
+
+IREE_AMD_AIE_REPOSITORY=https://github.com/nod-ai/iree-amd-aie.git
+IREE_AMD_AIE_COMMIT=fddfec1be6ceefbdb890079d957947dfa1fe0848
+IREE_PEANO_VERSION=22.0.0.2026081501+4a1adefa
+IREE_PEANO_COMMIT=4a1adefa
+IREE_PEANO_WHEEL_LINUX_X86_64=llvm_aie-22.0.0.2026081501+4a1adefa-py3-none-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl
+IREE_PEANO_WHEEL_SHA256=9287150ed7bc6be501c4c0d8f36448bfd7606600eb2989cd056aa23f5e86fc5a
+
+MLIR_AIE_REPOSITORY=https://github.com/Xilinx/mlir-aie.git
+MLIR_AIE_TAG=v1.4.1
+MLIR_AIE_COMMIT=601fc859532f2539bebb33ac89139584c76ae8a2
+MLIR_AIE_PEANO_VERSION=21.0.0.2026080301+c9c5ecb7
+MLIR_AIE_PEANO_COMMIT=c9c5ecb7
+MLIR_AIE_PEANO_WHEEL_LINUX_X86_64=llvm_aie-21.0.0.2026080301+c9c5ecb7-py3-none-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl
+MLIR_AIE_PEANO_WHEEL_SHA256=5a6c27c5517244040a4dc34e0c1fa976f2bdb6e14b29a35542236f66e89b1375
+MLIR_AIE_WHEEL_LINUX_X86_64=mlir_aie-1.4.1-cp314-cp314-manylinux_2_35_x86_64.whl
+MLIR_AIE_WHEEL_SHA256=ad8b151b36106f9fd23ead23bb49610b15693e76d1f5cab61a4bbf48b308b045
+
+# Wheel filenames and SHA-256 values below are for the verified Linux x86_64
+# hosts. Other platforms fail closed unless ALLOW_UNVERIFIED_WHEELS=1 is set.
+#
+# Host tools used for the verified builds. An exact patch release is intentional:
+# set ALLOW_VERSION_OVERRIDE=1 only when testing a deliberate tool upgrade.
+UV_VERSION=0.12.5
+IREE_PYTHON_VERSION=3.12.14
+MLIR_AIE_PYTHON_VERSION=3.14.4
+TORCH_CPU_VERSION=2.13.0+cpu
+PIP_VERSION=26.2.1
+WHEEL_VERSION=0.48.0
+
+# Direct Python build requirements used by the verified iree-amd-aie build.
+SETUPTOOLS_VERSION=84.0.0
+NUMPY_VERSION=2.5.2
+REQUESTS_VERSION=2.34.2
+SYMPY_VERSION=1.14.0
+ML_DTYPES_VERSION=0.6.0
+PYYAML_VERSION=6.0.3
+PYBIND11_VERSION=2.13.6
+NANOBIND_VERSION=2.9.0
+LIT_VERSION=18.1.8
+
+# The public `scripts/verify-stack.sh --full` contract imports its ONNX MLP
+# through the separately packaged IREE ONNX frontend.
+IREE_BASE_COMPILER_VERSION=3.11.0
+IREE_BASE_COMPILER_WHEEL_LINUX_X86_64=iree_base_compiler-3.11.0-cp312-abi3-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl
+IREE_BASE_COMPILER_WHEEL_SHA256=99fc3369375405485f11da541a75ef2b153d529fa3712c1d9771c98a35e2669e
+ONNX_VERSION=1.22.0
+ONNX_WHEEL_LINUX_X86_64=onnx-1.22.0-cp312-abi3-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl
+ONNX_WHEEL_SHA256=955e02e1f6d385b53d52f9cd7b9cdf5caf417c300bcfe3c64c6d542be763845b
+PROTOBUF_VERSION=7.35.1
+TYPING_EXTENSIONS_VERSION=4.16.0

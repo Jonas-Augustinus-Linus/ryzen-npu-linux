@@ -1,0 +1,36 @@
+name: Bug report
+description: Report a reproducible script, compiler, runtime, or documentation problem.
+title: "bug: "
+labels: [bug]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: What happened?
+      description: Include the command, expected result, actual result, and first complete error.
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: Hardware and software
+      description: CPU/NPU, detect-npu output, distro, kernel, driver/XRT, and versions.lock overrides.
+      render: shell
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Minimal reproduction
+      render: shell
+    validations:
+      required: true
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Checks
+      options:
+        - label: I used the pinned defaults or listed every override.
+          required: true
+        - label: I removed private data and secrets from the logs.
+          required: true

@@ -2,7 +2,14 @@
 
 # npu-runner — 상주형 AMD XDNA NPU 호출기 (IREE runtime C API)
 
-![npu-runner demo](../../docs/media/npu-runner.gif)
+**XDNA2 / Strix Point — 현재 실기 검증:** i32·bf16 CPU 참조값
+정확도 비교 후 `npu_runner` 출력 16,384개 전체가 PASS했습니다.
+
+![XDNA2 Strix Point에서 npu-runner 전체 출력을 검증한 실기 데모](../../docs/media/xdna2-compute.gif)
+
+**XDNA1 / Phoenix — 기존 상주형 runner 녹화:**
+
+![XDNA1 Phoenix npu-runner 데모](../../docs/media/npu-runner.gif)
 
 `.vmfb`를 **한 번만** 로드한 뒤, 호출마다 `iree-run-module`을 새로 띄우는 대신
 프로세스 내부에서 NPU를 여러 번 호출합니다. 7840U/XDNA1에서 측정한 결과: **~3.7 ms/invoke 대

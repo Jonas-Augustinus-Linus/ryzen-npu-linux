@@ -1,17 +1,20 @@
 # Contributing
 
-Thanks for helping map out the XDNA1-on-Linux NPU path! This is a community
-knowledge base — the single most valuable contribution is **a result from your
-own hardware**, because coverage of first-gen Ryzen AI on Linux is thin.
+Thanks for helping build an open XDNA-on-Linux path. This project exists so the
+community can use AMD NPUs without a proprietary application boundary, then
+turn verified kernels into local inference, agents, and many different LLM
+experiments. The most valuable contribution is still **a reproducible result
+from your own hardware**: successes expand the compatibility map, and precise
+failures tell upstream projects where the next piece of the ecosystem is needed.
 
 ## What's welcome
 
 - 🧪 **Hardware results.** Did the recipe work (or not) on your machine? Report
   your chip, kernel, distro, and what happened. Use the template below.
-- 📊 **Benchmarks.** Numbers for other matmul shapes/dtypes, or on a different
-  XDNA1 chip (7840U vs 7640U vs 8840U vs …).
-- 🧩 **New ops.** Convolution, other dtypes (i8, f32), fused ops — anything you
-  got running through `iree-amd-aie` on the NPU.
+- 📊 **Benchmarks.** Numbers for other shapes/dtypes or XDNA1/XDNA2 machines.
+- 🧩 **New ops and LLM building blocks.** Convolution, quantized matmul,
+  attention, RoPE, RMSNorm, SwiGLU, sampling, fused ops, and honest CPU/NPU
+  partitioning — anything reproducibly running through IREE or mlir-aie.
 - 🪤 **Gotcha fixes.** A workaround that stopped working, a new failure mode, or
   a cleaner fix than what's in [docs/GOTCHAS.md](docs/GOTCHAS.md).
 - 🛠️ **Script/doc improvements.** Make the tools more robust or portable.
@@ -22,11 +25,12 @@ own hardware**, because coverage of first-gen Ryzen AI on Linux is thin.
 Open an issue titled `result: <chip> / <distro> / <works|fails>` and include:
 
 ```
-- CPU / NPU:        e.g. Ryzen 7 7840U (Phoenix, XDNA1)
+- CPU / NPU:        e.g. Ryzen AI 9 HX 370 (Strix Point, XDNA2 / RyzenAI-npu4)
 - OS / kernel:      e.g. Ubuntu 26.04 / 7.0.0
 - amdxdna driver:   in-tree | out-of-tree (version)
 - XRT version:      e.g. 2.21.75      NPU firmware: e.g. 1.5.5.391
-- check-npu.sh:     which lines were green/red
+- detect-npu.sh:    paste the complete output
+- verify-stack.sh:  quick/full, PASS or first failing stage
 - Build:            success? compiler used, time, any patched flags
 - Run:              i32 ✓/✗   bf16 ✓/✗   (paste the result line or error)
 - Benchmark:        optional, paste the table row(s)
@@ -39,8 +43,8 @@ Even a clean "worked as written on <chip>" is genuinely useful data.
 
 ```bash
 ./scripts/build.sh                 # builds iree-amd-aie with all workarounds
-./scripts/run-matmul.sh i32        # sanity check on the NPU
-BENCH=1 ./scripts/run-matmul.sh bf16
+./scripts/verify-stack.sh --quick  # strict hardware + CPU-reference contract
+./scripts/validate-repo.sh        # hardware-free checks used by CI
 ```
 See [docs/BACKGROUND.md](docs/BACKGROUND.md) for how the pieces fit together.
 
@@ -60,7 +64,13 @@ prose, please update the translations too, or note in the PR that they need it.
 
 ## Scope & conduct
 
-This repo documents *getting compute running on XDNA1 NPUs on Linux*. Upstream
-bugs belong in [`nod-ai/iree-amd-aie`](https://github.com/nod-ai/iree-amd-aie).
-Be respectful and assume good faith — we're all reverse-engineering the same
-under-documented hardware together.
+This repo documents verified XDNA1 and Strix Point XDNA2 compute on Linux and
+turns it into reusable public examples. It does not replace
+[`nod-ai/iree-amd-aie`](https://github.com/nod-ai/iree-amd-aie), mlir-aie,
+LLVM-AIE, XRT, or amdxdna; compiler/runtime bugs should be reduced here and then
+reported upstream. Unsupported hardware (currently npu5/npu6) must stay labelled
+unsupported until someone contributes real hardware evidence.
+
+Be respectful and assume good faith. Follow [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md),
+report security problems through [SECURITY.md](SECURITY.md), and credit the
+upstream work that makes every result possible.
