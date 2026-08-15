@@ -1,12 +1,16 @@
 #!/usr/bin/env bash
-# setup-mlir-aie.sh — stand up the Xilinx/mlir-aie (IRON) toolkit for the XDNA1 NPU.
+# setup-mlir-aie.sh — stand up the Xilinx/mlir-aie (IRON) toolkit for the NPU
+# (XDNA1 npu1 and XDNA2 npu2 — the same wheel targets both; env_setup.sh
+# auto-detects the generation via xrt-smi and exports NPU2=0/1).
 #
 # A second, higher-level path next to build.sh's iree-amd-aie: instead of compiling
 # whole graphs, you author NPU kernels directly (IRON eDSL + aiecc + Peano) and run
 # them via pyxrt. It REUSES the Peano (llvm-aie) you already built for iree-amd-aie,
 # so it's cheap if you've run build.sh.
 #
-# Verified: Ryzen 7840U / XDNA1 / Ubuntu 26.04 / kernel 7.0 / Python 3.14 / 2026-06-24.
+# Verified: Ryzen 7840U / XDNA1 / Ubuntu 26.04 / kernel 7.0 / Python 3.14 / 2026-06-24
+#           (mlir-aie 1.3.x) and Ryzen AI 9 HX PRO 370 / XDNA2 Strix Point /
+#           Ubuntu 26.04 / kernel 7.0 / Python 3.14 / 2026-08-15 (mlir-aie 1.4.1).
 #
 # Usage:   ./scripts/setup-mlir-aie.sh
 # Env overrides:

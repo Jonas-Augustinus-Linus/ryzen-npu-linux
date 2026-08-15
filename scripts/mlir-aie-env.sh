@@ -1,8 +1,10 @@
 #!/usr/bin/env bash
 # mlir-aie-env.sh — source me to put the Xilinx/mlir-aie (IRON) toolchain on PATH
-# for the XDNA1 NPU. Activates the venv, exposes Peano, and sources mlir-aie's own
-# env_setup.sh the RIGHT way (no pipe — a pipe runs it in a subshell and the
-# exports vanish; see docs/GOTCHAS.md → mlir-aie track).
+# for the NPU (XDNA1 or XDNA2). Activates the venv, exposes Peano, and sources
+# mlir-aie's own env_setup.sh the RIGHT way (no pipe — a pipe runs it in a
+# subshell and the exports vanish; see docs/GOTCHAS.md → mlir-aie track).
+# env_setup.sh probes xrt-smi and exports NPU2 (0 = Phoenix npu1, 1 = Strix
+# family npu2); aiecc then targets aie2 or aie2p automatically per design.
 #
 #   source scripts/mlir-aie-env.sh
 #
