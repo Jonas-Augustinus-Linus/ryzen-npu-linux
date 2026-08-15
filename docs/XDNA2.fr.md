@@ -241,6 +241,11 @@ Tableaux complets dans [MLIR-AIE.fr.md](MLIR-AIE.fr.md) ; les grandes lignes :
    en amont et bon à reprendre : **l'alignement des buffers à 64 Ko (page SMMU)
    était un levier de 10× en decode** dans les expériences IRON citées dans
    #21725.
+   **Spike vérifié sur cette machine (2026-08-15)** : le kernel fusionné
+   dequant+GEMM de TileFuse (`mix_int4_ATB.cc`) **compile proprement avec
+   Peano pour `aie2p` contre les en-têtes mlir-aie 1.4.1**
+   (`-Dbf16_bf16_ONLY`, m64/k128/n64 → `matmul_bf16_bf16`) — l'écart de
+   portage est le design ObjectFifo + le packing côté hôte, pas le kernel.
 
 *Statut : page ajoutée le 2026-08-15 ; activation, puis calcul IRON, vérifiés
 le jour même sur la machine Strix Point ci-dessus. Les éléments 🔎 portent

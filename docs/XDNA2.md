@@ -229,6 +229,11 @@ Full tables in [MLIR-AIE.md](MLIR-AIE.md); headlines:
    on the HSA/ROCr runtime — a different stack from Ubuntu's XRT). Also
    measured upstream and worth stealing: **64 KB buffer alignment (SMMU page)
    was a 10× decode knob** in IRON experiments cited in #21725.
+   **Spike-checked on this machine (2026-08-15)**: TileFuse's fused
+   dequant+GEMM kernel (`mix_int4_ATB.cc`) **compiles cleanly with Peano for
+   `aie2p` against mlir-aie 1.4.1 headers** (`-Dbf16_bf16_ONLY`,
+   m64/k128/n64 → `matmul_bf16_bf16`) — the port gap is the ObjectFifo
+   design + host packing, not the kernel.
 
 *Status: page added 2026-08-15; activation, then IRON compute, verified the
 same day on the Strix Point machine above. The 🔎 items carry their sources

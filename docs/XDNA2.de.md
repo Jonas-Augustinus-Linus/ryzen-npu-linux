@@ -233,6 +233,11 @@ Schlagzeilen:
    upstream gemessen und einen Diebstahl wert: **64-KB-Puffer-Alignment
    (SMMU-Page) war ein 10×-Decode-Hebel** in den in #21725 zitierten
    IRON-Experimenten.
+   **Spike-geprüft auf dieser Maschine (2026-08-15)**: TileFuses fusionierter
+   Dequant+GEMM-Kernel (`mix_int4_ATB.cc`) **kompiliert sauber mit Peano für
+   `aie2p` gegen die mlir-aie-1.4.1-Header** (`-Dbf16_bf16_ONLY`,
+   m64/k128/n64 → `matmul_bf16_bf16`) — die Portierungslücke ist das
+   ObjectFifo-Design + Host-Packing, nicht der Kernel.
 
 *Status: Seite hinzugefügt am 2026-08-15; Aktivierung, dann IRON-Compute, am selben
 Tag auf der obigen Strix-Point-Maschine verifiziert. Die 🔎-Punkte tragen ihre
