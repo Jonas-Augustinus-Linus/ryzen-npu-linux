@@ -116,11 +116,13 @@ BENCH=1 ./scripts/run-matmul.sh bf16 # + benchmark
 [`Xilinx/mlir-aie`](https://github.com/Xilinx/mlir-aie) (IRON) ist der hardwarenähere
 Weg — du **verfasst NPU-Kernels direkt** und führst sie via `pyxrt` aus, und er liefert
 echte ML-`programming_examples` mit. Verifiziert auf **beiden Generationen** (`npu1` Phoenix
-und `npu2` Strix — automatisch erkannt), und er **teilt sich das Peano-Backend,
-das du bereits gebaut hast**, also ist er günstig hinzuzufügen. Vollständiger Leitfaden → **[docs/MLIR-AIE.de.md](docs/MLIR-AIE.de.md)**.
+und `npu2` Strix — automatisch erkannt). Das Setup nutzt das Peano von iree-amd-aie nur
+dann wieder, wenn sowohl dessen exakte `llvm-aie`-Version als auch der **clang-Build-Commit**
+zum Pin dieser mlir-aie-Version in `utils/peano-requirements.txt` passen; andernfalls
+installiert es das gepinnte Wheel in die mlir-aie-venv. Vollständiger Leitfaden → **[docs/MLIR-AIE.de.md](docs/MLIR-AIE.de.md)**.
 
 ```bash
-./scripts/setup-mlir-aie.sh                 # mlir_aie wheel + py3.14 venv + reuse your Peano
+./scripts/setup-mlir-aie.sh                 # mlir_aie wheel + py3.14 venv + compatible Peano
 ./scripts/run-mlir-example.sh ml/conv2d     # build for the detected NPU + run ON IT (pyxrt)
 ./examples/mlir-aie/relu_add/run.sh         # a custom hand-written fused kernel
 ```

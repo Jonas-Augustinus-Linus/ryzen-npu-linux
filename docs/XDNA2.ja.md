@@ -108,6 +108,23 @@ IRON トラックは有効化が完了したその日のうちに動いた — `
 - IRON 1.4.x API に移植した我々のカスタム `relu(a+b)` カーネルは
   **8 カラムで 8.0×** にスケールする（`transform_parallel_binary`）。実効 11.2 GB/s。
 
+### ✅ IREE: `npu4` での CPU 参照正しさ検証（別トラック）
+
+upstream IREE の CPU-vs-NPU ハーネスも、この実機で
+`--target_device=npu4`、コア 4 行×8 列、Peano 22 コミット `4a1adefa`
+を用いて実行した。
+
+| IREE matmul | 比較値数 | CPU 対 NPU の結果 |
+|---|---:|---|
+| bf16→f32, 64³ | 4,096 | 全数一致、最大絶対/相対誤差 0 |
+| bf16→f32, 512³ | 262,144 | 全数一致、最大絶対/相対誤差 0 |
+| i8→i32, 512³ | 262,144 | 不一致 0 |
+
+これらは `iree-amd-aie` の bf16/i8 正しさ検証であり、ネイティブ
+`mlir-aie` bfp16ebs8 経路とは別物である。別の Peano 21 累積スイープは
+K=1216 でパスし、K=1280 で初めて失敗した。この IREE の表はその境界を
+変更しない。また、これらの正しさ検証は **性能測定ではない**。
+
 ### XDNA1 のツールを XDNA2 に向けて見つかったスクリプトのバグ（修正済み）
 
 - `check-npu.sh [1]` は `pipefail` の下で `lsmod | grep -q` を使っていた: `grep -q` は
@@ -158,11 +175,11 @@ IRON トラックは有効化が完了したその日のうちに動いた — `
 |---|---|---|
 | `scripts/check-npu.sh` | ✅ 動作する（このコミット） | XDNA2 の PCI 文字列と世代の報告。[6] の成功側 SIGPIPE 修正。[5] は pam 対 systemd の memlock 分裂を診断するように |
 | `scripts/enable-npu.sh` | ✅ 動作する（このコミットで拡張） | 同じ 3 つのブロッカー。Ubuntu 26.04 はパッケージをプリインストール済み — ただし systemd デスクトップでは、memlock の修正に limits.d に加えて `user@.service` の drop-in が必要（[落とし穴 #0](GOTCHAS.ja.md)） |
-| `scripts/build.sh`（iree-amd-aie） | 🔎 移植できるはず | `npu4` はサポート対象ターゲット。プロジェクトは活発（Peano npu4 向け softmax ukernel、ERT_CMD_CHAIN バッチング）。コミットのロックステップという落とし穴（ピン留めされた xdna-driver）は残る |
-| `scripts/run-matmul.sh` | 🔎 移植できるはず | ターゲット `npu1_4col` → `npu4`。`amdxdna` HAL フラグはそのまま |
-| `tools/npu-runner` | 🔎 移植できるはず | IREE C API は不変 — npu4 ビルドに対して再コンパイルするだけ |
+| `scripts/build.sh`（iree-amd-aie） | ✅ 実機検証済み | Strix でソースビルド+インストール完了。並列度の制限で実際に発生した OOM を防ぎ、最終チェックで `npu1_4col` と `npu4` の両方を必須とする。Peano 22 `4a1adefa` でテスト |
+| `scripts/run-matmul.sh` | ✅ 実機検証済み | 4×8 グリッドを検出して `npu4` を選択。XDNA1 経路を維持しつつ i32 128³ と bf16 512³ が正しくコンパイル・実行された |
+| `tools/npu-runner` | ✅ 実機検証済み | C API のグリッド自動検出で4×8を解決。ネイティブ runner と ctypes/Python 経路の両方で i32 出力 16,384 値を全て検証 |
 | `tools/npu-trim` | ✅ コンセプトは健在 | op カバレッジの最前線は動くが、アプローチは同一。これを置き換えるベンダー EP は Linux には依然として無い |
-| `mlir-aie`（IRON）トラック | ✅ **検証済み — 最有力の道**（このコミット） | IRON [1.4.1](https://github.com/Xilinx/mlir-aie/releases): Strix はファーストクラス（`npu2`）、**Peano がデフォルト**、`aiecc` は C++ バイナリに、例は lit 駆動に。我々のスクリプト + カスタムカーネルは移植済み（アノテーション API の破壊 — [GOTCHAS](GOTCHAS.ja.md)）。数値は [MLIR-AIE.ja.md](MLIR-AIE.ja.md) に。以前の調査に対する訂正: XRT 不要ランタイムの **「HRX」は存在しない** — 当該モジュールは `aie.utils.hostruntime` であり、*XRT バックエンドを持つ*。また [amd/IRON](https://github.com/amd/IRON) は **wheel を一切出荷していない**（ソースインストールのみ、mlir_aie 1.3.5.dev スナップショットにピン留め） |
+| `mlir-aie`（IRON）トラック | ✅ **検証済み — 最有力の道**（このコミット） | IRON [1.4.1](https://github.com/Xilinx/mlir-aie/releases): Strix はファーストクラス（`npu2`）、**Peano がデフォルト**、`aiecc` は C++ バイナリに、例は lit 駆動に。我々のスクリプト + カスタムカーネルは移植済み（アノテーション API の破壊 — [GOTCHAS](GOTCHAS.ja.md)）。数値は [MLIR-AIE.ja.md](MLIR-AIE.ja.md) に。以前の調査に対する訂正: mlir-aie 1.4.1 は **オプトインの HRX Python バックエンドを実際に同梱**しており、外部から提供する `libhrx` が必要である。このリポジトリの `relu_add` の単一 Worker 版と 8 カラム版は、ここで HRX ランタイムによるディスパッチと正しさ検証の PASS を実機確認した。ただしアーティファクトの生成には既存の XRT ツールチェーンを使ったため、ビルドから実行まで完全に XRT 不要だという主張ではない。 [amd/IRON](https://github.com/amd/IRON) は依然 **wheel を一切出荷していない**（ソースインストールのみ、mlir_aie 1.3.5.dev スナップショットにピン留め） |
 
 ## 🔎 カーネルを書くときに効いてくるハードウェアの差分
 
@@ -211,10 +228,12 @@ IRON トラックは有効化が完了したその日のうちに動いた — `
    **aie2p 専用** で持つ（head-dim は 64 のみ）— しかしソースインストールのみで、
    mlir_aie 1.3.5.dev スナップショットにピン留めされており、量子化 op は
    *dequant*（Q4NX/AWQ → bf16）だけだ。wheel は無く、融合 W4A16 も無い。
-2. **iree-amd-aie の matmul レシピと `npu-runner` を `npu4` に移植し**、XDNA1 と
-   XDNA2 の数値を並べて公開する。（このマシンでのブロッカーはビルドツールだけ —
-   `ninja`/`lld` の apt インストールが必要。フロー自体は移植できる見込みだ:
-   `npu4` はサポート対象ターゲットである。）
+2. ~~iree-amd-aie の matmul レシピと `npu-runner` を `npu4` に移植し、
+   CPU 参照の正しさを確認~~ — **✅ 完了**。ビルド、世代自動検出 matmul
+   スクリプト、常駐 C API runner、Python ラッパーはすべてこの Strix
+   実機で動作し、upstream ハーネスで上記の全数一致を得た。統制した
+   XDNA1-vs-XDNA2 性能比較は別の今後の作業であり、この正しさ検証から
+   速度に関する主張は行わない。
 3. **量子化 prefill GEMM** — コントリビューションの面であり、今や正確にマップ
    されている: [TileFuse](https://arxiv.org/abs/2606.11357) は W4A16 のレシピを
    *コードとともに* 公開した
@@ -234,8 +253,13 @@ IRON トラックは有効化が完了したその日のうちに動いた — `
    **このマシンでスパイク確認済み（2026-08-15）**: TileFuse の融合
    dequant+GEMM カーネル（`mix_int4_ATB.cc`）は **mlir-aie 1.4.1 のヘッダに
    対して Peano の `aie2p` ターゲットでクリーンにコンパイルできる**
-   （`-Dbf16_bf16_ONLY`、m64/k128/n64 → `matmul_bf16_bf16`）— 移植の
-   ギャップはカーネルではなく、ObjectFifo 設計 + ホスト側パッキングである。
+   （`-Dbf16_bf16_ONLY`、m64/k128/n64 → `matmul_bf16_bf16`）。これはこの
+   特殊化についてフロントエンドのコンパイル障壁を 1 つ越えただけで、移植の
+   完了では **ない**。IRON/ObjectFifo 統合、リンク、配置、ABI 整合、ホスト側の
+   重みパッキング、NPU 実行、数値検証がすべて残っている。固定済みの
+   [`check-w4a16-compile.sh`](../scripts/check-w4a16-compile.sh) にソース
+   コミット、チェックサム、正確なフロントエンドフラグを記録している。
 
-*ステータス: このページは 2026-08-15 に追加。有効化、続いて IRON コンピュートを、
-同日、上記の Strix Point マシンで検証済み。🔎 の項目は出典を本文中に併記している。*
+*ステータス: このページは 2026-08-15 に追加。有効化、IRON コンピュート、
+CPU 参照正しさを含む IREE `npu4` 移植を、同日上記の Strix Point 実機で
+検証済み。🔎 の項目は出典を本文中に併記している。*

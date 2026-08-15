@@ -91,13 +91,34 @@ def main():
                    help="int32 elements per tensor (default: %(default)s)")
     p.add_argument("--tile-size", type=int, default=1024,
                    help="elements per Worker tile (default: %(default)s; "
-                        "3 double-buffered int32 tile buffers must fit the "
-                        "64KB core-local memory)")
+                        "Worker stack plus 3 double-buffered int32 tile "
+                        "buffers must fit the 64KB core-local memory)")
     args = p.parse_args()
     n, tile = args.num_elements, args.tile_size
 
+    if n <= 0:
+        p.error("--num-elements must be positive")
+    if tile <= 0:
+        p.error("--tile-size must be positive")
+    # Each of the two input and one output ObjectFifos is double-buffered and
+    # aligned to 32 bytes. Worker defaults to a 1024-byte stack on AIE2/AIE2P.
+    tile_bytes = tile * np.dtype(np.int32).itemsize
+    aligned_tile_bytes = (tile_bytes + 31) // 32 * 32
+    tile_storage_bytes = 1024 + 3 * 2 * aligned_tile_bytes
+    if tile_storage_bytes > 64 * 1024:
+        p.error(
+            "--tile-size is too large: the Worker stack and three "
+            "double-buffered int32 tile buffers need "
+            f"{tile_storage_bytes} bytes, exceeding 64 KiB"
+        )
+
     dev = iron.get_current_device()
     cols = dev.cols
+    if cols not in (4, 8):
+        p.error(
+            f"unsupported NPU topology: expected 4 (XDNA1) or 8 (XDNA2) "
+            f"columns, got {cols}"
+        )
     print(f"device: {type(dev).__name__}  columns: {cols}  "
           f"({'XDNA2/Strix' if cols == 8 else 'XDNA1/Phoenix'})")
 

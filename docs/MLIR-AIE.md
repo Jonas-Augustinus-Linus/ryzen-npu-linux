@@ -8,14 +8,20 @@ page is the verified recipe for the *other* open path —
 [`Xilinx/mlir-aie`](https://github.com/Xilinx/mlir-aie) and its **IRON** Python
 eDSL — where you **author NPU kernels directly** and run them via `pyxrt`.
 
-Verified on **both NPU generations**, same scripts, same wheel:
+The path has been verified on **both NPU generations**, but with
+release-specific designs rather than one identical wheel:
 
 > **XDNA1** — Lenovo ThinkPad T16 Gen2 · Ryzen 7 PRO 7840U (Phoenix, `npu1`) ·
-> Ubuntu 26.04 · kernel 7.0 · XRT 2.21 · verified 2026-06-24 (mlir-aie 1.3.x).
+> Ubuntu 26.04 · kernel 7.0 · XRT 2.21 · verified 2026-06-24 with mlir-aie
+> 1.3.x (the earlier single-Worker design).
 >
 > **XDNA2** — Ryzen AI 9 HX PRO 370 (Strix Point, `npu2`, XRT name
 > `RyzenAI-npu4`) · Radeon 890M · Ubuntu 26.04 · kernel 7.0 · Ubuntu-native XRT
-> 2.21.75 · NPU FW 1.1.2.64 · verified 2026-08-15 (**mlir-aie 1.4.1**).
+> 2.21.75 · NPU FW 1.1.2.64 · verified 2026-08-15 with **mlir-aie 1.4.1**
+> (the current annotated single-Worker and whole-array designs).
+
+The current 1.4.x designs have not been re-verified on XDNA1; the XDNA1 entry
+records the earlier 1.3.x result.
 
 ## iree-amd-aie vs mlir-aie — which one?
 
@@ -114,10 +120,29 @@ Two lessons the table teaches:
    but *emulated at ~¼ rate* on XDNA2's AIE2P; the native mode is **bfp16
    block floating point** (8×8×8). Free +17% at 512³, +25% with tuned tiles.
 
-The **native bfp16ebs8** end-to-end designs (`ml/block_datatypes/…`) compile
-fine with Peano on this machine (xclbin + insts produced); running them needs
-the C++ host, i.e. `libxrt-dev` (Ubuntu's runtime packages ship no XRT dev
-headers).
+The **native bfp16ebs8** end-to-end design (`ml/block_datatypes/…`) also ran
+against its CPU float reference, and exposed a correctness limit that a
+throughput-only run would hide:
+
+| Native bfp16 shape (8 columns) | Throughput | CPU-reference result |
+|---|---:|---|
+| 512³ | 1.525 TFLOPS | **PASS** |
+| 1024³ | 4.892 TFLOPS | **PASS** |
+| 2048³ | ~5.09 TFLOPS | **FAIL** — 291/1000 sampled, max relative error 12% |
+
+The throughput values were recorded with Peano 22 (`4a1adefa`) before the
+environment was aligned to the v1.4.1 pin. The complete PASS/FAIL sweep was
+then repeated with pinned Peano 21 (`c9c5ecb7`) and the boundary was unchanged;
+the script deliberately asserts correctness rather than timing.
+
+Isolating the reduction length at M=N=1024 gives K=1216 **PASS** and K=1280
+**FAIL**. [`check-bfp16-correctness.sh`](../scripts/check-bfp16-correctness.sh)
+reproduces and asserts that known boundary. Source inspection suggests that
+each K tile reloads and stores the bfp16 output, repeatedly quantizing the
+partial sum; that is a hypothesis explaining the K dependence, not a proven
+fix. Do not report a native-bfp throughput unless the CPU-reference check also
+passes. This is separate from the **bf16 input/output, bfp16-internal** 2048³
+path in the table above: its **4.64 TFLOPS** result passed correctness.
 
 ### Custom kernel, whole-array scaling
 

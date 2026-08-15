@@ -1,18 +1,35 @@
 #!/usr/bin/env bash
-# build.sh — Build iree-amd-aie from source so you can run real compute on an
-# AMD XDNA1 (Phoenix) NPU on Linux. Encodes every workaround needed as of
-# mid-2026 (see docs/GOTCHAS.md for the why behind each one).
+# build.sh — Build iree-amd-aie from source so you can run real compute on AMD
+# XDNA1 (Phoenix/Hawk Point) and XDNA2 (Strix Point) NPUs on Linux. Encodes
+# every workaround needed as of mid-2026 (see docs/GOTCHAS.md for the why).
 #
 # Tested on: Ryzen 7 PRO 7840U (Phoenix / XDNA1), Ubuntu 26.04, kernel 7.0,
-#            gcc 15, cmake 4.2, ~65 min cold build on 16 cores, ~30-60 GB disk.
+#            and Ryzen AI 9 HX PRO 370 (Strix Point / XDNA2), Ubuntu 26.04,
+#            kernel 7.0, gcc 15, cmake 4.2, ~30-60 GB disk.
 #
 # Usage:   scripts/build.sh [SRC_DIR]      (default: ~/src)
+# Env:     JOBS=N                         (default: min(nproc, 8), limits OOM risk)
+#          CLEAN_BUILD=1                  (discard the CMake/Ninja build cache)
 set -euo pipefail
 
 SRC="${1:-$HOME/src}"
 REPO="$SRC/iree-amd-aie"
 VENV="$SRC/iree-aie-venv"
 NPROC="$(nproc)"
+if [ -z "${JOBS+x}" ]; then
+  JOBS="$NPROC"
+  if [ "$JOBS" -gt 8 ]; then JOBS=8; fi
+elif ! [[ "$JOBS" =~ ^[1-9][0-9]*$ ]]; then
+  echo "ERROR: JOBS must be a positive integer (got '${JOBS:-}')." >&2
+  exit 2
+fi
+case "${CLEAN_BUILD:-0}" in
+  0) ;;
+  1) ;;
+  *) echo "ERROR: CLEAN_BUILD must be 0 or 1." >&2; exit 2 ;;
+esac
+LINK_JOBS="$JOBS"
+if [ "$LINK_JOBS" -gt 4 ]; then LINK_JOBS=4; fi
 
 mkdir -p "$SRC"
 
@@ -27,7 +44,20 @@ if ! command -v uv >/dev/null; then
   echo "Installing uv (user-local)..."; curl -LsSf https://astral.sh/uv/install.sh | sh; export PATH="$HOME/.local/bin:$PATH"
 fi
 uv python install 3.12
-uv venv --python 3.12 --seed "$VENV"
+if [ -x "$VENV/bin/python" ]; then
+  VENV_PYTHON="$("$VENV/bin/python" -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")' 2>/dev/null || true)"
+  if [ "$VENV_PYTHON" != "3.12" ]; then
+    echo "ERROR: existing venv at $VENV uses Python ${VENV_PYTHON:-unknown}, expected 3.12." >&2
+    echo "  Move it aside or remove that exact venv, then rerun." >&2
+    exit 1
+  fi
+  echo "  reusing Python $VENV_PYTHON venv: $VENV"
+elif [ -e "$VENV" ]; then
+  echo "ERROR: $VENV exists but is not a usable Python venv; move it aside and rerun." >&2
+  exit 1
+else
+  uv venv --python 3.12 --seed "$VENV"
+fi
 # shellcheck disable=SC1091
 source "$VENV/bin/activate"
 python -m pip install --upgrade pip
@@ -61,7 +91,28 @@ echo "== [5/6] Configure (gcc host compiler — NOT clang; python bindings OFF) 
 # WHY python OFF: nanobind/python bindings hit -Werror,-Wmacro-redefined and are
 #                 not needed to run matmuls via the iree-* CLI tools.
 export CC=gcc CXX=g++ CCACHE_MAXSIZE=20G
-rm -rf "$REPO/iree-build"
+if [ "${CLEAN_BUILD:-0}" = 1 ]; then
+  echo "  CLEAN_BUILD=1: removing $REPO/iree-build"
+  rm -rf "$REPO/iree-build"
+elif [ -d "$REPO/iree-build" ]; then
+  CACHE="$REPO/iree-build/CMakeCache.txt"
+  if [ -f "$CACHE" ]; then
+    CACHED_CC="$(sed -n 's/^CMAKE_C_COMPILER:[^=]*=//p' "$CACHE" | head -n1)"
+    CACHED_CXX="$(sed -n 's/^CMAKE_CXX_COMPILER:[^=]*=//p' "$CACHE" | head -n1)"
+    EXPECTED_CC="$(readlink -f "$(command -v "$CC")")"
+    EXPECTED_CXX="$(readlink -f "$(command -v "$CXX")")"
+    if [ -z "$CACHED_CC" ] || [ -z "$CACHED_CXX" ] \
+        || [ "$(readlink -f "$CACHED_CC" 2>/dev/null || true)" != "$EXPECTED_CC" ] \
+        || [ "$(readlink -f "$CACHED_CXX" 2>/dev/null || true)" != "$EXPECTED_CXX" ]; then
+      echo "ERROR: existing CMake cache does not use the required gcc/g++ host compilers." >&2
+      echo "  cached C/C++: ${CACHED_CC:-unknown} / ${CACHED_CXX:-unknown}" >&2
+      echo "  required C/C++: $EXPECTED_CC / $EXPECTED_CXX" >&2
+      echo "  Rerun with CLEAN_BUILD=1 to create a compatible cache." >&2
+      exit 1
+    fi
+  fi
+  echo "  reusing build cache: $REPO/iree-build"
+fi
 cmake -G Ninja -B "$REPO/iree-build" -S "$REPO/third_party/iree" \
   -DCMAKE_BUILD_TYPE=Release \
   -DIREE_CMAKE_PLUGIN_PATHS="$REPO" \
@@ -73,19 +124,31 @@ cmake -G Ninja -B "$REPO/iree-build" -S "$REPO/third_party/iree" \
   -DIREE_BUILD_TESTS=ON \
   -DIREE_ERROR_ON_MISSING_SUBMODULES=OFF \
   -DLLVM_TARGETS_TO_BUILD=X86 \
-  -DLLVM_PARALLEL_LINK_JOBS=4 \
+  -DLLVM_PARALLEL_LINK_JOBS="$LINK_JOBS" \
   -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
   -DCMAKE_EXE_LINKER_FLAGS="-fuse-ld=lld" \
   -DCMAKE_SHARED_LINKER_FLAGS="-fuse-ld=lld" \
   -DCMAKE_MODULE_LINKER_FLAGS="-fuse-ld=lld" \
   -DCMAKE_INSTALL_PREFIX="$REPO/iree-install"
 
-echo "== [6/6] Build + install (this is the long part) =="
-cmake --build "$REPO/iree-build" -- -k 0
-cmake --build "$REPO/iree-build" --target install
+echo "== [6/6] Build + install (JOBS=$JOBS; this is the long part) =="
+cmake --build "$REPO/iree-build" --parallel "$JOBS" -- -k 0
+cmake --build "$REPO/iree-build" --parallel "$JOBS" --target install
 
 echo
 echo "Done. Tools in: $REPO/iree-install/bin"
-"$REPO/iree-install/bin/iree-compile" --iree-hal-target-backends=amd-aie --help 2>&1 \
-  | grep -i npu1_4col && echo "npu1_4col target present — ready."
-echo "Now run:  scripts/run-matmul.sh   (set REPO=$REPO VENV=$VENV if non-default)"
+TARGET_HELP="$("$REPO/iree-install/bin/iree-compile" \
+  --iree-hal-target-backends=amd-aie --help 2>&1)"
+MISSING_TARGETS=""
+for target in npu1_4col npu4; do
+  if ! grep -Fqi "$target" <<<"$TARGET_HELP"; then
+    MISSING_TARGETS="${MISSING_TARGETS:+$MISSING_TARGETS, }$target"
+  fi
+done
+if [ -n "$MISSING_TARGETS" ]; then
+  echo "ERROR: amd-aie target(s) missing from iree-compile: $MISSING_TARGETS" >&2
+  exit 1
+fi
+echo "amd-aie targets present: npu1_4col (XDNA1), npu4 (XDNA2) — ready."
+echo "XDNA1: run scripts/run-matmul.sh (set REPO=$REPO VENV=$VENV if non-default)."
+echo "XDNA2: compile for --iree-amdaie-target-device=npu4 (see docs/XDNA2.md)."

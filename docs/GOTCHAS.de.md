@@ -267,16 +267,25 @@ Viele Beispiele liefern **beides** mit: einen C++-Host (`test.cpp` → `make run
 **nicht** installieren. Bevorzuge `run_py`. Für Nur-C++-Beispiele (matrix_multiplication,
 vision, relu, softmax): `sudo apt install libxrt-dev`.
 
-## M5. Nutze das Peano wieder, das du bereits gebaut hast
+## M5. Peano nur bei passendem Release-Pin wiederverwenden
 
-Lade `llvm-aie` nicht erneut herunter. Übergib das iree-amd-aie-Peano als 2. Argument
-von `env_setup.sh`, damit es seine Auto-Installation überspringt:
+Die Unterstützung für `aie` / `aie2` / `aie2p` allein genügt nicht. Jede mlir-aie-Version
+pinnt ein exaktes `llvm-aie`-Wheel in `utils/peano-requirements.txt`. Das Peano von
+iree-amd-aie darf nur wiederverwendet werden, wenn sowohl seine Wheel-Versionsmetadaten
+als auch der von `clang --version` gemeldete **Build-Commit** zu diesem Pin passen.
+`setup-mlir-aie.sh` prüft beides. Bei manueller Einrichtung ist dies die sicherste
+Auswahl einer kompatiblen Version:
 
 ```bash
-source utils/env_setup.sh "$SITE/mlir_aie" "$HOME/src/iree-amd-aie/llvm-aie"
+python -m pip install --upgrade -r utils/peano-requirements.txt
+SITE="$(python -c 'import site; print(site.getsitepackages()[0])')"
+source utils/env_setup.sh "$SITE/mlir_aie"
 ```
 
-Es unterstützt `aie` / `aie2` / `aie2p`, sodass dasselbe Peano beiden Tracks dient.
+`env_setup.sh` konfiguriert nur die Umgebung; ohne zweites Argument findet es das
+gepinnte Wheel in der aktiven venv. Übergib `$HOME/src/iree-amd-aie/llvm-aie` nur
+dann ausdrücklich, wenn du dieselbe exakte Version und denselben clang-Commit
+geprüft hast—nicht bloß, weil dieses Verzeichnis bereits vorhanden ist.
 
 ## M6. Gesamtnetzwerk-Entwürfe wollen mehr als die 4 Spalten von Phoenix
 
@@ -363,3 +372,18 @@ python whole_array.py … --dtype_in bf16 --dtype_out f32 --emulate-bf16-mmul-wi
 
 Hier gemessen: +17% bei 512³/32³-Tiles, +25% bei 2048³ mit 64×32×64-Tiles
 (4.64 vs. ~3.7 TFLOPS). Details: [MLIR-AIE.de.md](MLIR-AIE.de.md) → GEMM-Lektionen.
+
+## M11. Native bfp16-Ergebnisse können mit wachsender K-Tile-Zahl falsch werden
+
+Das native bfp-GEMM aus `ml/block_datatypes` kann schnell aussehen und trotzdem
+falsch rechnen. Gegen eine CPU-float-Referenz bestehen 512³ und 1024³, während
+2048³ fehlschlägt (291 von 1000 Stichproben, maximaler relativer Fehler 12%).
+Bei M=N=1024 liegt die beobachtete Grenze zwischen K=1216 (**PASS**) und
+K=1280 (**FAIL**).
+
+Die Quellcodeanalyse deutet auf eine wiederholte bfp16-Requantisierung der
+Zwischenausgabe zwischen K-Kacheln hin. Das erklärt die K-Abhängigkeit, ist aber
+noch keine bewiesene Lösung. Native-bfp-Durchsätze nur zusammen mit einer
+bestandenen CPU-Referenzprüfung berichten.
+[`check-bfp16-correctness.sh`](../scripts/check-bfp16-correctness.sh) reproduziert
+und prüft die bekannte Grenze.

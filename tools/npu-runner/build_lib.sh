@@ -11,6 +11,9 @@ U="$BLD/runtime/src/iree/hal/utils"; A="$BLD/runtime/src/iree/async"
 HERE="$(cd "$(dirname "$0")" && pwd)"
 DEFS="-DIREE_ALLOCATOR_SYSTEM_CTL=iree_allocator_libc_ctl"
 
+[ -f "$BLD/runtime/src/iree/runtime/libiree_runtime_unified.a" ] || {
+  echo "Build iree-amd-aie first (../../scripts/build.sh). Missing: $BLD"; exit 1; }
+
 g++ -O2 -std=c++17 -fPIC -shared $DEFS "$HERE/libnpu.cc" -o "$HERE/libnpu.so" \
   -I"$SRC" -I"$AMD" -I"$GEN" -I"$AMDGEN" \
   -Wl,--start-group \

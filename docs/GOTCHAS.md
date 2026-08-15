@@ -267,16 +267,24 @@ Many examples ship **both** a C++ host (`test.cpp` → `make run`) and a Python 
 **not** install. Prefer `run_py`. For C++-only examples (matrix_multiplication,
 vision, relu, softmax): `sudo apt install libxrt-dev`.
 
-## M5. Reuse the Peano you already built
+## M5. Reuse Peano only when its release pin matches
 
-Don't re-download `llvm-aie`. Pass the iree-amd-aie Peano as `env_setup.sh`'s 2nd
-argument so it skips its auto-install:
+Support for `aie` / `aie2` / `aie2p` alone is not enough. Each mlir-aie release
+pins an exact `llvm-aie` wheel in `utils/peano-requirements.txt`; Peano from
+iree-amd-aie is reusable only when both its wheel-version metadata **and** the
+build commit reported by `clang --version` match that pin. `setup-mlir-aie.sh`
+checks both. For a manual setup, the safest compatible selection is:
 
 ```bash
-source utils/env_setup.sh "$SITE/mlir_aie" "$HOME/src/iree-amd-aie/llvm-aie"
+python -m pip install --upgrade -r utils/peano-requirements.txt
+SITE="$(python -c 'import site; print(site.getsitepackages()[0])')"
+source utils/env_setup.sh "$SITE/mlir_aie"
 ```
 
-It supports `aie` / `aie2` / `aie2p`, so the same Peano serves both tracks.
+`env_setup.sh` only configures the environment; with no second argument it finds
+the pinned wheel in the active venv. Pass
+`$HOME/src/iree-amd-aie/llvm-aie` explicitly only after verifying that same exact
+version and clang commit—do not select it merely because it is already present.
 
 ## M6. Full-network designs want more than Phoenix's 4 columns
 
@@ -363,3 +371,16 @@ python whole_array.py … --dtype_in bf16 --dtype_out f32 --emulate-bf16-mmul-wi
 
 Measured here: +17% at 512³/32³-tiles, +25% at 2048³ with 64×32×64 tiles
 (4.64 vs 3.7-ish TFLOPS). Details: [MLIR-AIE.md](MLIR-AIE.md) → GEMM lessons.
+
+## M11. Native bfp16 can fail as the K-tile count grows
+
+The `ml/block_datatypes` native-bfp GEMM can look fast and still be wrong.
+Against a CPU float reference, 512³ and 1024³ pass, while 2048³ fails (291 of
+1000 sampled outputs, maximum relative error 12%). With M=N=1024, the observed
+boundary is K=1216 **PASS** and K=1280 **FAIL**.
+
+Source inspection suggests repeated bfp16 re-quantization of the partial output
+between K tiles; this explains the K dependence but is not yet a proven fix.
+Always require a CPU-reference **PASS** before reporting native-bfp throughput.
+[`check-bfp16-correctness.sh`](../scripts/check-bfp16-correctness.sh) reproduces
+and asserts the known boundary.

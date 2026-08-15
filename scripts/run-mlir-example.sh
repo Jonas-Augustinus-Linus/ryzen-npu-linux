@@ -40,9 +40,10 @@ DEV="$([ "${NPU2:-0}" = "1" ] && echo npu2 || echo npu)"
 PY="$EX/$(basename "$EX").py"
 cd "$EX"
 if [ -f Makefile ] && grep -qE '^run_py:' Makefile; then
-  echo "=== make (devicename=$DEV) + run_py ON THE NPU ==="
+  echo "=== make run_py (devicename=$DEV) ON THE NPU ==="
+  # run_py declares its build prerequisites. In targets such as MobileNet,
+  # default `all` also includes run_py, so a separate default make runs twice.
   make clean >/dev/null 2>&1 || true
-  make devicename="$DEV" "$@"
   make devicename="$DEV" "$@" run_py
 elif [ -f "$PY" ]; then
   echo "=== python $(basename "$PY") $* (device auto-detected: $DEV) ==="

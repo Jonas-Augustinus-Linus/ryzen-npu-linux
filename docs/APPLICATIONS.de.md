@@ -263,9 +263,11 @@ iree-run-module --device=amdxdna --module=model.vmfb \
 
 ## 🔇 Gemessen: Die NPU verliert gegen die CPU bei Audio
 
-Wir haben es auf einem 7840U gemessen. Ein **ganzer CPU-Denoiser-Frame (8 Schichten) = 0.063 ms**,
-während ein **einzelner NPU-Dispatch = 3.8 ms** beträgt — **~480× langsamer**, und ein echter Denoiser
-braucht viele Dispatches/Frame (≫ das 10 ms-Echtzeit-Budget). Audio-Frames sind winzig,
+Wir haben es auf einem 7840U gemessen. Ein **ganzer CPU-Denoiser-Frame (8 Schichten) benötigt
+0.063 ms**, ein **einzelner NPU-Dispatch benötigt 3.8 ms** — er ist damit **~60× langsamer als der
+ganze CPU-Frame**. Bei einer naiven Zuordnung von einem Dispatch pro Schicht würde ein Frame mit acht
+Schichten **8 × 3.8 ms = 30.4 ms** benötigen — **~480× langsamer als der CPU-Frame** und damit
+über dem 10 ms-Echtzeit-Budget. Audio-Frames sind winzig,
 daher ist die Latenz **dispatch-overhead-gebunden** und der Durchsatzvorteil der NPU greift
 nie; RNNoise (GRU) hat überhaupt kein NPU-Lowering. **Nutze die CPU** für Echtzeit-
 Rauschunterdrückung — z. B. RNNoise über ein virtuelles Mikrofon mit PipeWire-`module-filter-chain`

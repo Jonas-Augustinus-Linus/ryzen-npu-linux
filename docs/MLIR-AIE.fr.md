@@ -8,14 +8,20 @@ page est la recette vérifiée de l'*autre* voie ouverte —
 [`Xilinx/mlir-aie`](https://github.com/Xilinx/mlir-aie) et son eDSL Python **IRON**
 — où vous **écrivez directement des noyaux NPU** et les exécutez via `pyxrt`.
 
-Vérifiée sur les **deux générations de NPU**, mêmes scripts, même wheel :
+Cette voie a été vérifiée sur les **deux générations de NPU**, mais avec des
+designs propres à chaque version plutôt qu'avec un wheel identique :
 
 > **XDNA1** — Lenovo ThinkPad T16 Gen2 · Ryzen 7 PRO 7840U (Phoenix, `npu1`) ·
-> Ubuntu 26.04 · noyau 7.0 · XRT 2.21 · vérifié le 2026-06-24 (mlir-aie 1.3.x).
+> Ubuntu 26.04 · noyau 7.0 · XRT 2.21 · vérifié le 2026-06-24 avec mlir-aie
+> 1.3.x (l'ancien design à un Worker).
 >
 > **XDNA2** — Ryzen AI 9 HX PRO 370 (Strix Point, `npu2`, nom XRT
 > `RyzenAI-npu4`) · Radeon 890M · Ubuntu 26.04 · noyau 7.0 · XRT natif d'Ubuntu
-> 2.21.75 · NPU FW 1.1.2.64 · vérifié le 2026-08-15 (**mlir-aie 1.4.1**).
+> 2.21.75 · NPU FW 1.1.2.64 · vérifié le 2026-08-15 avec **mlir-aie 1.4.1**
+> (les designs actuels annotés, à un Worker et sur tableau entier).
+
+Les designs 1.4.x actuels n'ont pas été revérifiés sur XDNA1 ; l'entrée XDNA1
+consigne le résultat antérieur en 1.3.x.
 
 ## iree-amd-aie vs mlir-aie — lequel choisir ?
 
@@ -120,10 +126,31 @@ Deux leçons que ce tableau enseigne :
    est la **virgule flottante par blocs bfp16** (8×8×8). +17% gratuits à 512³,
    +25% avec des tuiles ajustées.
 
-Les designs de bout en bout **bfp16ebs8 natifs** (`ml/block_datatypes/…`) se
-compilent sans problème avec Peano sur cette machine (xclbin + insts produits) ;
-les exécuter exige l'hôte C++, c'est-à-dire `libxrt-dev` (les paquets de
-runtime d'Ubuntu ne livrent aucun en-tête de développement XRT).
+Le design de bout en bout **bfp16ebs8 natif** (`ml/block_datatypes/…`) a aussi
+été exécuté face à sa référence float sur CPU. Cela a révélé une limite de
+correction qu'une mesure de débit seule masquerait :
+
+| Forme bfp16 native (8 colonnes) | Débit | Résultat face à la référence CPU |
+|---|---:|---|
+| 512³ | 1.525 TFLOPS | **PASS** |
+| 1024³ | 4.892 TFLOPS | **PASS** |
+| 2048³ | ~5.09 TFLOPS | **FAIL** — 291/1000 échantillons, erreur relative max. 12% |
+
+Les débits ont été relevés avec Peano 22 (`4a1adefa`), avant l'alignement de
+l'environnement sur la version épinglée par v1.4.1. Le sweep PASS/FAIL complet
+a ensuite été répété avec Peano 21 épinglé (`c9c5ecb7`), sans changement de la
+frontière ; le script vérifie volontairement la correction plutôt que le temps.
+
+En isolant la longueur de réduction avec M=N=1024, K=1216 donne **PASS** et
+K=1280 donne **FAIL**.
+[`check-bfp16-correctness.sh`](../scripts/check-bfp16-correctness.sh) reproduit
+et vérifie cette frontière connue. L'inspection du source suggère que chaque
+tuile K recharge puis stocke la sortie bfp16, quantifiant à répétition la somme
+partielle. C'est une hypothèse expliquant la dépendance à K, pas un correctif
+démontré. Ne publiez pas un débit bfp natif sans réussite du contrôle par la
+référence CPU. Ce cas est distinct de la voie 2048³ à **entrée/sortie bf16 et
+bfp16 interne** du tableau ci-dessus : son résultat à **4.64 TFLOPS** a passé
+le contrôle de correction.
 
 ### Noyau personnalisé, montée en charge sur tableau entier
 

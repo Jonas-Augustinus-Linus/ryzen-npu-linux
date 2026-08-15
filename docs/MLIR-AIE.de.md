@@ -8,14 +8,20 @@ Seite ist das verifizierte Rezept für den *anderen* offenen Weg —
 [`Xilinx/mlir-aie`](https://github.com/Xilinx/mlir-aie) und seine **IRON**-Python-
 eDSL —, bei dem du **NPU-Kernels direkt verfasst** und sie via `pyxrt` ausführst.
 
-Verifiziert auf **beiden NPU-Generationen**, dieselben Skripte, dasselbe Wheel:
+Der Pfad wurde auf **beiden NPU-Generationen** verifiziert, allerdings mit
+release-spezifischen Entwürfen statt mit einem identischen Wheel:
 
 > **XDNA1** — Lenovo ThinkPad T16 Gen2 · Ryzen 7 PRO 7840U (Phoenix, `npu1`) ·
-> Ubuntu 26.04 · Kernel 7.0 · XRT 2.21 · verifiziert 2026-06-24 (mlir-aie 1.3.x).
+> Ubuntu 26.04 · Kernel 7.0 · XRT 2.21 · am 2026-06-24 mit mlir-aie 1.3.x
+> verifiziert (der frühere Einzel-Worker-Entwurf).
 >
 > **XDNA2** — Ryzen AI 9 HX PRO 370 (Strix Point, `npu2`, XRT-Name
 > `RyzenAI-npu4`) · Radeon 890M · Ubuntu 26.04 · Kernel 7.0 · Ubuntu-natives XRT
-> 2.21.75 · NPU FW 1.1.2.64 · verifiziert 2026-08-15 (**mlir-aie 1.4.1**).
+> 2.21.75 · NPU FW 1.1.2.64 · am 2026-08-15 mit **mlir-aie 1.4.1**
+> verifiziert (die aktuellen annotierten Einzel-Worker- und Whole-Array-Entwürfe).
+
+Die aktuellen 1.4.x-Entwürfe wurden nicht erneut auf XDNA1 verifiziert; der
+XDNA1-Eintrag dokumentiert das frühere 1.3.x-Ergebnis.
 
 ## iree-amd-aie vs. mlir-aie — welches davon?
 
@@ -116,10 +122,31 @@ Zwei Lektionen, die die Tabelle lehrt:
    aber auf XDNA2s AIE2P *mit ~¼-Rate emuliert*; der native Modus ist **bfp16
    Block Floating Point** (8×8×8). Gratis +17% bei 512³, +25% mit getunten Tiles.
 
-Die **nativen bfp16ebs8**-End-to-End-Entwürfe (`ml/block_datatypes/…`) kompilieren
-auf dieser Maschine einwandfrei mit Peano (xclbin + insts erzeugt); sie auszuführen
-braucht den C++-Host, d. h. `libxrt-dev` (Ubuntus Laufzeit-Pakete liefern keine
-XRT-Dev-Header).
+Der **native bfp16ebs8**-End-to-End-Entwurf (`ml/block_datatypes/…`) wurde auch
+gegen seine CPU-float-Referenz ausgeführt. Dabei zeigte sich eine
+Korrektheitsgrenze, die eine reine Durchsatzmessung verbergen würde:
+
+| Native bfp16-Form (8 Spalten) | Durchsatz | CPU-Referenzergebnis |
+|---|---:|---|
+| 512³ | 1.525 TFLOPS | **PASS** |
+| 1024³ | 4.892 TFLOPS | **PASS** |
+| 2048³ | ~5.09 TFLOPS | **FAIL** — 291/1000 Stichproben, max. relativer Fehler 12% |
+
+Die Durchsatzwerte wurden mit Peano 22 (`4a1adefa`) erfasst, bevor die
+Umgebung an den v1.4.1-Pin angepasst wurde. Anschließend wurde der vollständige
+PASS/FAIL-Sweep mit dem gepinnten Peano 21 (`c9c5ecb7`) wiederholt; die Grenze
+blieb unverändert. Das Skript prüft bewusst die Korrektheit statt des Timings.
+
+Wird bei M=N=1024 nur die Reduktionslänge variiert, besteht K=1216 (**PASS**),
+während K=1280 fehlschlägt (**FAIL**).
+[`check-bfp16-correctness.sh`](../scripts/check-bfp16-correctness.sh) reproduziert
+und prüft diese bekannte Grenze. Die Quellcodeanalyse deutet darauf hin, dass
+jede K-Kachel die bfp16-Ausgabe neu lädt und speichert und so die Zwischensumme
+wiederholt quantisiert. Das ist eine Hypothese zur K-Abhängigkeit, keine
+bewiesene Lösung. Native-bfp-Durchsätze dürfen nur mit bestandener
+CPU-Referenzprüfung berichtet werden. Davon getrennt ist der 2048³-Pfad mit
+**bf16-Ein-/Ausgabe und internem bfp16** in der Tabelle oben: dessen
+**4.64 TFLOPS** bestanden die Korrektheitsprüfung.
 
 ### Eigener Kernel, Whole-Array-Skalierung
 

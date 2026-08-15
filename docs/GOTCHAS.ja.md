@@ -267,16 +267,24 @@ source utils/env_setup.sh "$MLIR_AIE" "$PEANO" >/tmp/env.log 2>&1   # RIGHT
 `run_py` を優先してください。C++ 専用の例（matrix_multiplication、vision、relu、softmax）には:
 `sudo apt install libxrt-dev`。
 
-## M5. すでにビルドした Peano を再利用する
+## M5. リリースのピンが一致する場合だけ Peano を再利用する
 
-`llvm-aie` を再ダウンロードしないでください。iree-amd-aie の Peano を `env_setup.sh` の
-第2引数として渡すと、自動インストールがスキップされます:
+`aie` / `aie2` / `aie2p` をサポートしているだけでは不十分です。各 mlir-aie リリースは
+`utils/peano-requirements.txt` で正確な `llvm-aie` wheel をピン留めしています。
+iree-amd-aie の Peano を再利用できるのは、wheel のバージョンメタデータと
+`clang --version` が示す **ビルドコミット**の両方がそのピンと一致する場合だけです。
+`setup-mlir-aie.sh` は両方を検査します。手動セットアップで最も安全に互換版を選ぶには:
 
 ```bash
-source utils/env_setup.sh "$SITE/mlir_aie" "$HOME/src/iree-amd-aie/llvm-aie"
+python -m pip install --upgrade -r utils/peano-requirements.txt
+SITE="$(python -c 'import site; print(site.getsitepackages()[0])')"
+source utils/env_setup.sh "$SITE/mlir_aie"
 ```
 
-これは `aie` / `aie2` / `aie2p` をサポートするため、同じ Peano が両トラックに使えます。
+`env_setup.sh` は環境を設定するだけです。第2引数を省略すると、アクティブな venv にある
+ピン留め済み wheel を検出します。`$HOME/src/iree-amd-aie/llvm-aie` を明示的に渡すのは、
+同じ正確なバージョンと clang コミットを確認した後だけにしてください。すでに存在するという
+理由だけで選んではいけません。
 
 ## M6. ネットワーク全体の設計は Phoenix の 4 カラムを超えて要求する
 
@@ -366,3 +374,16 @@ python whole_array.py … --dtype_in bf16 --dtype_out f32 --emulate-bf16-mmul-wi
 
 ここでの計測: 512³/32³ タイルで +17%、64×32×64 タイルの 2048³ で +25%
 （4.64 対 3.7 前後の TFLOPS）。詳細: [MLIR-AIE.md](MLIR-AIE.md) → GEMM の教訓。
+
+## M11. ネイティブ bfp16 は K タイル数が増えると正しさを失う場合がある
+
+`ml/block_datatypes` のネイティブ bfp GEMM は、高速に見えても結果が誤って
+いる場合があります。CPU の float 参照値との比較では 512³ と 1024³ は通りますが、
+2048³ は失敗します（1000 サンプル中 291、最大相対誤差 12%）。M=N=1024 では、
+K=1216 が **PASS**、K=1280 が **FAIL** という境界が観測されました。
+
+ソースを見る限り、K タイル間で部分出力が bfp16 に繰り返し再量子化される可能性が
+あります。これは K 依存性を説明しますが、実証済みの修正ではありません。
+ネイティブ bfp のスループットは、必ず CPU 参照の **PASS** とともに報告してください。
+[`check-bfp16-correctness.sh`](../scripts/check-bfp16-correctness.sh) はこの既知の
+境界を再現してアサートします。

@@ -9,14 +9,20 @@
 eDSL — 의 검증된 레시피다. 여기서는 **NPU 커널을 직접 작성**하고 `pyxrt`로
 실행한다.
 
-**두 NPU 세대 모두**에서, 같은 스크립트와 같은 wheel로 검증되었다:
+이 경로는 **두 NPU 세대 모두**에서 검증되었지만, 하나의 동일한 wheel이 아니라
+릴리스별 설계로 검증했다:
 
 > **XDNA1** — Lenovo ThinkPad T16 Gen2 · Ryzen 7 PRO 7840U (Phoenix, `npu1`) ·
-> Ubuntu 26.04 · kernel 7.0 · XRT 2.21 · 2026-06-24 검증 (mlir-aie 1.3.x).
+> Ubuntu 26.04 · kernel 7.0 · XRT 2.21 · 2026-06-24 mlir-aie 1.3.x로 검증
+> (이전 단일 Worker 설계).
 >
 > **XDNA2** — Ryzen AI 9 HX PRO 370 (Strix Point, `npu2`, XRT 이름
 > `RyzenAI-npu4`) · Radeon 890M · Ubuntu 26.04 · kernel 7.0 · Ubuntu 기본 XRT
-> 2.21.75 · NPU FW 1.1.2.64 · 2026-08-15 검증 (**mlir-aie 1.4.1**).
+> 2.21.75 · NPU FW 1.1.2.64 · 2026-08-15 **mlir-aie 1.4.1**로 검증
+> (현재의 어노테이션된 단일 Worker 및 전체 어레이 설계).
+
+현재 1.4.x 설계는 XDNA1에서 다시 검증하지 않았다. XDNA1 항목은 이전 1.3.x
+결과를 기록한 것이다.
 
 ## iree-amd-aie vs mlir-aie — 어느 쪽?
 
@@ -118,10 +124,26 @@ Strix Point는 IRON에 **8 컬럼 / 컴퓨트 타일 32개**를 노출한다(Pho
    모드는 **bfp16 블록 부동소수점(block floating point)**(8×8×8)이다.
    512³에서 공짜 +17%, 타일을 튜닝하면 +25%.
 
-**네이티브 bfp16ebs8** 엔드투엔드 설계(`ml/block_datatypes/…`)는 이 머신에서
-Peano로 잘 컴파일된다(xclbin + insts 생성됨); 실행에는 C++ 호스트, 즉
-`libxrt-dev`가 필요하다(Ubuntu 런타임 패키지는 XRT 개발 헤더를 제공하지
-않는다).
+**네이티브 bfp16ebs8** 엔드투엔드 설계(`ml/block_datatypes/…`)도 CPU float
+참조값과 대조해 실행했고, 처리량만 재면 감춰지는 정합성 한계를 확인했다:
+
+| 네이티브 bfp16 형상(8컬럼) | 처리량 | CPU 참조 결과 |
+|---|---:|---|
+| 512³ | 1.525 TFLOPS | **PASS** |
+| 1024³ | 4.892 TFLOPS | **PASS** |
+| 2048³ | 약 5.09 TFLOPS | **FAIL** — 표본 1000개 중 291개, 최대 상대 오차 12% |
+
+처리량 값은 환경을 v1.4.1 pin에 맞추기 전 Peano 22(`4a1adefa`)로 기록했다.
+이후 고정 Peano 21(`c9c5ecb7`)로 전체 PASS/FAIL sweep을 다시 실행해 경계가
+같음을 확인했으며, 스크립트는 시간 대신 정합성만 단언한다.
+
+M=N=1024로 두고 축약 길이만 분리하면 K=1216은 **PASS**, K=1280은
+**FAIL**이다. [`check-bfp16-correctness.sh`](../scripts/check-bfp16-correctness.sh)는
+이 알려진 경계를 재현하고 단언한다. 소스 검사로는 각 K 타일이 bfp16 출력을 다시
+읽고 저장하면서 부분합을 반복 양자화하는 것으로 보인다. 이는 K 의존성을 설명하는
+가설이지, 검증된 수정안은 아니다. CPU 참조 검사도 통과하지 않은 네이티브 bfp
+처리량은 보고하지 말아야 한다. 이는 위 표의 **bf16 입출력, 내부 bfp16** 2048³
+경로와 별개이며, 그 **4.64 TFLOPS** 결과는 정합성 검사를 통과했다.
 
 ### 커스텀 커널, 어레이 전체 스케일링
 

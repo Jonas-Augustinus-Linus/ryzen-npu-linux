@@ -7,10 +7,13 @@ A hand-written AIE kernel that is **not** one of the stock mlir-aie
 out[i] = max(a[i] + b[i], 0)      # residual add + ReLU, in one kernel
 ```
 
-It shows the whole author-your-own-kernel path on **both NPU generations** —
-verified on XDNA1 (Phoenix / 7840U, `npu1`) and XDNA2 (Strix Point / HX 370,
-`npu2`); `iron.jit` detects the device and Peano compiles the same C++ for
-`aie2` or `aie2p` accordingly:
+The operation has been verified on **both NPU generations**, but with the
+release-specific designs available at the time: XDNA1 (Phoenix / 7840U,
+`npu1`) used mlir-aie 1.3.x and the earlier single-Worker design; XDNA2 (Strix
+Point / HX 370, `npu2`) uses mlir-aie 1.4.1 and the current annotated
+single-Worker plus 8-column designs. The current 1.4.x designs have not been
+re-verified on XDNA1. `iron.jit` detects the device, and Peano compiles the
+same C++ kernel for `aie2` or `aie2p` accordingly:
 
 - [`relu_add.cc`](relu_add.cc) — the compute kernel (plain C++, no AIE-API
   needed for the scalar form). No source change between generations.

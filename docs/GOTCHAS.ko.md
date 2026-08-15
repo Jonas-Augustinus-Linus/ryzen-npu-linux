@@ -266,16 +266,23 @@ source 전후로 그 플래그들을 완화했다가 복원한다.)
 **않는다**. `run_py`를 선호하라. C++ 전용 예제(matrix_multiplication, vision,
 relu, softmax)는: `sudo apt install libxrt-dev`.
 
-## M5. 이미 빌드한 Peano를 재사용하라
+## M5. 릴리스 핀이 일치할 때만 Peano를 재사용하라
 
-`llvm-aie`를 다시 받지 말라. iree-amd-aie Peano를 `env_setup.sh`의 두 번째 인자로
-넘겨 자동 설치를 건너뛰게 하라:
+`aie` / `aie2` / `aie2p` 지원 여부만으로는 충분하지 않다. 각 mlir-aie 릴리스는
+`utils/peano-requirements.txt`에 정확한 `llvm-aie` wheel을 핀한다. iree-amd-aie의
+Peano는 wheel 버전 메타데이터와 `clang --version`이 보고하는 **빌드 커밋**이 모두
+그 핀과 일치할 때만 재사용할 수 있다. `setup-mlir-aie.sh`는 둘 다 확인한다.
+수동으로 설정할 때 가장 안전한 호환 버전 선택 방법은 다음과 같다:
 
 ```bash
-source utils/env_setup.sh "$SITE/mlir_aie" "$HOME/src/iree-amd-aie/llvm-aie"
+python -m pip install --upgrade -r utils/peano-requirements.txt
+SITE="$(python -c 'import site; print(site.getsitepackages()[0])')"
+source utils/env_setup.sh "$SITE/mlir_aie"
 ```
 
-이는 `aie` / `aie2` / `aie2p`를 지원하므로, 같은 Peano가 두 트랙 모두에 쓰인다.
+`env_setup.sh`는 환경만 구성한다. 두 번째 인자를 생략하면 활성 venv에서 핀된 wheel을
+찾는다. `$HOME/src/iree-amd-aie/llvm-aie`는 동일한 정확한 버전과 clang 커밋을
+확인한 뒤에만 명시적으로 넘겨라. 이미 존재한다는 이유만으로 선택해서는 안 된다.
 
 ## M6. 네트워크 전체 설계는 Phoenix의 4 컬럼보다 많은 것을 원한다
 
@@ -366,3 +373,16 @@ python whole_array.py … --dtype_in bf16 --dtype_out f32 --emulate-bf16-mmul-wi
 여기서 측정한 값: 512³/32³-타일에서 +17%, 64×32×64 타일의 2048³에서 +25%
 (4.64 대 3.7 언저리 TFLOPS). 자세한 내용: [MLIR-AIE.md](MLIR-AIE.md) → GEMM
 교훈.
+
+## M11. 네이티브 bfp16은 K 타일 수가 늘면 정합성에 실패할 수 있다
+
+`ml/block_datatypes` 네이티브 bfp GEMM은 빠르게 보여도 결과가 틀릴 수 있다.
+CPU float 참조값과 비교하면 512³과 1024³은 통과하지만, 2048³은 실패한다
+(표본 1000개 중 291개, 최대 상대 오차 12%). M=N=1024에서는 K=1216이
+**PASS**, K=1280이 **FAIL**인 경계가 관측되었다.
+
+소스 검사로는 K 타일 사이에서 부분 출력이 bfp16으로 반복 재양자화되는 것으로
+보인다. 이는 K 의존성을 설명하지만 아직 검증된 수정안은 아니다. 네이티브 bfp
+처리량은 반드시 CPU 참조 **PASS**와 함께 보고해야 한다.
+[`check-bfp16-correctness.sh`](../scripts/check-bfp16-correctness.sh)는 이 알려진
+경계를 재현하고 단언한다.

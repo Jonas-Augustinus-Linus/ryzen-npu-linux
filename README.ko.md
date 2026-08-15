@@ -113,13 +113,15 @@ BENCH=1 ./scripts/run-matmul.sh bf16 # + benchmark
 `iree-amd-aie`(위)는 **그래프 전체**를 컴파일한다;
 [`Xilinx/mlir-aie`](https://github.com/Xilinx/mlir-aie)(IRON)는 더 낮은 레벨의
 경로다 — 여기서는 **NPU 커널을 직접 작성**하고 `pyxrt`로 실행하며, 실제 ML
-`programming_examples`를 함께 제공한다. **두 세대 모두**에서 검증되었고
-(`npu1` Phoenix와 `npu2` Strix — 자동 감지), **이미 빌드한 Peano 백엔드를
-공유**하므로, 추가하는 비용이 적다. 전체 가이드 →
+`programming_examples`를 함께 제공한다. **두 세대 모두**에서 검증되었다
+(`npu1` Phoenix와 `npu2` Strix — 자동 감지). 설정 과정은 iree-amd-aie Peano의
+정확한 `llvm-aie` 버전과 **clang 빌드 커밋**이 해당 mlir-aie 릴리스의
+`utils/peano-requirements.txt` 핀과 모두 일치할 때만 이를 재사용하며, 그렇지
+않으면 mlir-aie venv에 그 핀 버전 wheel을 설치한다. 전체 가이드 →
 **[docs/MLIR-AIE.ko.md](docs/MLIR-AIE.ko.md)**.
 
 ```bash
-./scripts/setup-mlir-aie.sh                 # mlir_aie wheel + py3.14 venv + reuse your Peano
+./scripts/setup-mlir-aie.sh                 # mlir_aie wheel + py3.14 venv + compatible Peano
 ./scripts/run-mlir-example.sh ml/conv2d     # build for the detected NPU + run ON IT (pyxrt)
 ./examples/mlir-aie/relu_add/run.sh         # a custom hand-written fused kernel
 ```

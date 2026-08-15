@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Build npu_runner: a persistent IREE-runtime-C-API caller that loads a .vmfb
-# once and invokes the XDNA1 NPU many times in-process (~11x faster per call
-# than spawning iree-run-module). Links against the existing iree-amd-aie build
+# once and invokes an AMD XDNA NPU many times in-process. Links against the
+# existing iree-amd-aie build
 # tree (no reinstall). Host compiler MUST be g++ (clang21 ICEs the driver).
 set -euo pipefail
 ROOT="${IREE_AMD_AIE_ROOT:-$HOME/src/iree-amd-aie}"
@@ -16,7 +16,7 @@ A="$BLD/runtime/src/iree/async"
 HERE="$(cd "$(dirname "$0")" && pwd)"
 
 [ -f "$BLD/runtime/src/iree/runtime/libiree_runtime_unified.a" ] || {
-  echo "Build iree-amd-aie first (../iree-amd-aie). Missing: $BLD"; exit 1; }
+  echo "Build iree-amd-aie first (../../scripts/build.sh). Missing: $BLD"; exit 1; }
 
 # The IREE runtime C API uses a build-time system allocator macro.
 DEFS="-DIREE_ALLOCATOR_SYSTEM_CTL=iree_allocator_libc_ctl"

@@ -108,6 +108,23 @@ Full tables in [MLIR-AIE.md](MLIR-AIE.md); headlines:
 - Our custom `relu(a+b)` kernel ported to the IRON 1.4.x API scales
   **8.0× on 8 columns** (`transform_parallel_binary`), 11.2 GB/s effective.
 
+### ✅ IREE: CPU-reference correctness on `npu4` (separate track)
+
+The upstream IREE CPU-vs-NPU harness was also run on this hardware with
+`--target_device=npu4`, 4 core rows, 8 core columns, and Peano 22 commit
+`4a1adefa`:
+
+| IREE matmul | Values compared | CPU vs NPU result |
+|---|---:|---|
+| bf16→f32, 64³ | 4,096 | exact match; max absolute/relative error 0 |
+| bf16→f32, 512³ | 262,144 | exact match; max absolute/relative error 0 |
+| i8→i32, 512³ | 262,144 | 0 mismatches |
+
+These are `iree-amd-aie` bf16/i8 correctness results, not the native
+`mlir-aie` bfp16ebs8 path. That separate Peano 21 accumulation sweep passed at
+K=1216 and first failed at K=1280; nothing in this IREE table changes that
+boundary. These correctness runs are also **not performance measurements**.
+
 ### Script bugs found by pointing the XDNA1 tools at XDNA2 (fixed)
 
 - `check-npu.sh [1]` used `lsmod | grep -q` under `pipefail`: `grep -q` exits on
@@ -158,11 +175,11 @@ Full tables in [MLIR-AIE.md](MLIR-AIE.md); headlines:
 |---|---|---|
 | `scripts/check-npu.sh` | ✅ works (this commit) | XDNA2 PCI string + generation report; [6] success-side SIGPIPE fix; [5] now diagnoses the pam-vs-systemd memlock split |
 | `scripts/enable-npu.sh` | ✅ works (extended in this commit) | same 3 blockers; Ubuntu 26.04 pre-installs the packages — but on a systemd desktop the memlock fix needs a `user@.service` drop-in on top of limits.d ([gotcha #0](GOTCHAS.md)) |
-| `scripts/build.sh` (iree-amd-aie) | 🔎 should port | `npu4` is a supported target; project active (softmax ukernel for Peano npu4, ERT_CMD_CHAIN batching). The commit-lockstep gotcha (pinned xdna-driver) remains |
-| `scripts/run-matmul.sh` | 🔎 should port | target `npu1_4col` → `npu4`; the `amdxdna` HAL flags stay |
-| `tools/npu-runner` | 🔎 should port | IREE C API unchanged — recompile against the npu4 build |
+| `scripts/build.sh` (iree-amd-aie) | ✅ hardware-verified | source build + install completed on Strix; bounded parallelism avoids the observed OOM, and the final check requires both `npu1_4col` and `npu4`; tested with Peano 22 `4a1adefa` |
+| `scripts/run-matmul.sh` | ✅ hardware-verified | detects the 4×8 grid and selects `npu4`; i32 128³ and bf16 512³ compile and execute correctly while retaining the XDNA1 path |
+| `tools/npu-runner` | ✅ hardware-verified | C API grid auto-discovery resolves 4×8; both the native runner and ctypes/Python path verified all 16,384 i32 output values |
 | `tools/npu-trim` | ✅ concept intact | op-coverage frontier moves, approach identical; still no vendor EP on Linux to replace it |
-| `mlir-aie` (IRON) track | ✅ **verified — the strongest path** (this commit) | IRON [1.4.1](https://github.com/Xilinx/mlir-aie/releases): Strix first-class (`npu2`), **Peano default**, `aiecc` now a C++ binary, examples lit-driven; our scripts + custom kernel ported (annotation API break — [GOTCHAS](GOTCHAS.md)); numbers in [MLIR-AIE.md](MLIR-AIE.md). Correction vs. earlier research: there is **no "HRX"** XRT-free runtime — the module is `aie.utils.hostruntime` *with an XRT backend*; and [amd/IRON](https://github.com/amd/IRON) ships **no wheels** (source-install only, pinned to an mlir_aie 1.3.5.dev snapshot) |
+| `mlir-aie` (IRON) track | ✅ **verified — the strongest path** (this commit) | IRON [1.4.1](https://github.com/Xilinx/mlir-aie/releases): Strix first-class (`npu2`), **Peano default**, `aiecc` now a C++ binary, examples lit-driven; our scripts + custom kernel ported (annotation API break — [GOTCHAS](GOTCHAS.md)); numbers in [MLIR-AIE.md](MLIR-AIE.md). Correction vs. earlier research: mlir-aie 1.4.1 **does ship an opt-in HRX Python backend**; it requires an externally supplied `libhrx`. Runtime dispatch of this repo's `relu_add` single-Worker and 8-column designs was hardware-verified here with correctness PASS. Their artifacts were still generated with the existing XRT toolchain, so this is not a claim of a fully XRT-free build+run path. [amd/IRON](https://github.com/amd/IRON) still ships **no wheels** (source-install only, pinned to an mlir_aie 1.3.5.dev snapshot) |
 
 ## 🔎 Hardware delta that matters when you write kernels
 
@@ -211,10 +228,12 @@ Full tables in [MLIR-AIE.md](MLIR-AIE.md); headlines:
    (head-dim 64 only) — but it is source-install-only, pinned to an mlir_aie
    1.3.5.dev snapshot, and its only quant op is *dequant* (Q4NX/AWQ →
    bf16). No wheels, no fused W4A16.
-2. **Port the iree-amd-aie matmul recipes + `npu-runner` to `npu4`** and
-   publish XDNA1 vs XDNA2 numbers side by side. (Blocked on this machine only
-   by build tools — `ninja`/`lld` need an apt install; the flow itself is
-   expected to port: `npu4` is a supported target.)
+2. ~~Port the iree-amd-aie matmul recipes + `npu-runner` to `npu4` and close
+   CPU-reference correctness~~ — **✅ done**. The build, generation-aware matmul
+   script, persistent C API runner, and Python wrapper all ran on this Strix
+   machine; the upstream harness produced the exact-match table above. A
+   controlled XDNA1-vs-XDNA2 performance comparison remains separate work; no
+   speed claim is derived from these correctness runs.
 3. **Quantized prefill GEMM** — the contribution surface, now precisely
    mapped: [TileFuse](https://arxiv.org/abs/2606.11357) published the W4A16
    recipe *and code*
@@ -232,9 +251,13 @@ Full tables in [MLIR-AIE.md](MLIR-AIE.md); headlines:
    **Spike-checked on this machine (2026-08-15)**: TileFuse's fused
    dequant+GEMM kernel (`mix_int4_ATB.cc`) **compiles cleanly with Peano for
    `aie2p` against mlir-aie 1.4.1 headers** (`-Dbf16_bf16_ONLY`,
-   m64/k128/n64 → `matmul_bf16_bf16`) — the port gap is the ObjectFifo
-   design + host packing, not the kernel.
+   m64/k128/n64 → `matmul_bf16_bf16`). That clears one front-end compile
+   barrier for this specialization; it does **not** complete the port.
+   IRON/ObjectFifo integration, linking, placement, ABI matching, host-side
+   weight packing, NPU execution, and numerical verification all remain. The
+   pinned [`check-w4a16-compile.sh`](../scripts/check-w4a16-compile.sh) records
+   the source commit, checksums, and exact front-end flags.
 
-*Status: page added 2026-08-15; activation, then IRON compute, verified the
-same day on the Strix Point machine above. The 🔎 items carry their sources
-inline.*
+*Status: page added 2026-08-15; activation, IRON compute, and the IREE `npu4`
+port with CPU-reference correctness were verified the same day on the Strix
+Point machine above. The 🔎 items carry their sources inline.*

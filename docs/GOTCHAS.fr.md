@@ -267,16 +267,25 @@ Beaucoup d'exemples livrent **à la fois** un hôte C++ (`test.cpp` → `make ru
 **pas**. Préférez `run_py`. Pour les exemples uniquement en C++ (matrix_multiplication,
 vision, relu, softmax) : `sudo apt install libxrt-dev`.
 
-## M5. Réutilisez le Peano que vous avez déjà compilé
+## M5. Ne réutilisez Peano que si le pin de la version correspond
 
-Ne re-téléchargez pas `llvm-aie`. Passez le Peano d'iree-amd-aie comme 2ᵉ argument
-d'`env_setup.sh` pour qu'il saute son auto-installation :
+La prise en charge de `aie` / `aie2` / `aie2p` ne suffit pas. Chaque version de mlir-aie
+épingle un wheel `llvm-aie` exact dans `utils/peano-requirements.txt`. Le Peano
+d'iree-amd-aie n'est réutilisable que si les métadonnées de version de son wheel **et**
+le commit de build indiqué par `clang --version` correspondent à ce pin.
+`setup-mlir-aie.sh` vérifie les deux. Pour une configuration manuelle, la sélection
+compatible la plus sûre est :
 
 ```bash
-source utils/env_setup.sh "$SITE/mlir_aie" "$HOME/src/iree-amd-aie/llvm-aie"
+python -m pip install --upgrade -r utils/peano-requirements.txt
+SITE="$(python -c 'import site; print(site.getsitepackages()[0])')"
+source utils/env_setup.sh "$SITE/mlir_aie"
 ```
 
-Il prend en charge `aie` / `aie2` / `aie2p`, donc le même Peano sert les deux voies.
+`env_setup.sh` ne fait que configurer l'environnement ; sans second argument, il trouve
+le wheel épinglé dans le venv actif. Ne passez explicitement
+`$HOME/src/iree-amd-aie/llvm-aie` qu'après avoir vérifié la même version exacte et le
+même commit clang—pas simplement parce que ce répertoire existe déjà.
 
 ## M6. Les designs pour réseau entier exigent plus que les 4 colonnes de Phoenix
 
@@ -365,3 +374,17 @@ python whole_array.py … --dtype_in bf16 --dtype_out f32 --emulate-bf16-mmul-wi
 
 Mesuré ici : +17% à 512³/tuiles 32³, +25% à 2048³ avec des tuiles 64×32×64
 (4.64 contre ~3.7 TFLOPS). Détails : [MLIR-AIE.md](MLIR-AIE.md) → leçons GEMM.
+
+## M11. Le bfp16 natif peut devenir incorrect quand le nombre de tuiles K augmente
+
+Le GEMM bfp natif de `ml/block_datatypes` peut sembler rapide tout en donnant un
+résultat faux. Face à une référence float sur CPU, 512³ et 1024³ passent, tandis
+que 2048³ échoue (291 échantillons sur 1000, erreur relative maximale de 12 %).
+Avec M=N=1024, la frontière observée est K=1216 **PASS** et K=1280 **FAIL**.
+
+L'inspection du source suggère une requantification bfp16 répétée de la sortie
+partielle entre les tuiles K. Cela explique la dépendance à K, mais ne constitue
+pas encore un correctif démontré. Ne publiez un débit bfp natif qu'avec un
+contrôle de référence CPU **PASS**.
+[`check-bfp16-correctness.sh`](../scripts/check-bfp16-correctness.sh) reproduit
+et vérifie cette frontière connue.
