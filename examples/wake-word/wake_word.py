@@ -1,20 +1,18 @@
 #!/usr/bin/env python3
 """
-Wake-word detector whose dense layers run ON the XDNA1 NPU.
+Wake-word detector whose dense layers run on an AMD XDNA1 or XDNA2 NPU.
 
 This is a *template*, not a trained model. It shows the real, working split for
-running an always-on keyword spotter on a first-gen Ryzen AI NPU under Linux:
+running an always-on keyword spotter on a Ryzen AI NPU under Linux:
 
     audio ──▶ log-mel features      (CPU, numpy)
           ──▶ Dense(W1) ─ ReLU ─ Dense(W2) ─ ReLU ─ Dense(W3)
                   └─NPU─┘  └CPU┘   └─NPU─┘  └CPU┘   └─NPU─┘
           ──▶ score ──▶ threshold ──▶ "wake!"      (CPU)
 
-Each Dense layer is a 128x128x128 i32 matmul executed on the NPU via
-`iree-run-module --device=amdxdna` (one dispatch per layer, npy file I/O).
-ReLU + a fixed-point requant shift are done on the CPU because fusing them into
-the NPU dispatch isn't supported yet (see ../docs/GOTCHAS.md philosophy: dense on
-NPU, glue on CPU).
+Each Dense layer is a 128x128x128 i32 matmul executed through the persistent
+IREE C API bridge (one loaded module, repeated dispatches). ReLU + a fixed-point
+requant shift stay on the CPU: dense math on the NPU, lightweight glue on CPU.
 
 The weights here are ILLUSTRATIVE (a matched filter in --selftest), so the demo
 visibly separates a target pattern from noise and proves the NPU pipeline end to
@@ -26,30 +24,36 @@ Usage:
     ./run.sh --wav sample.wav           # run on a WAV (random weights unless --weights)
     ./run.sh --selftest --threshold 500
 """
-import argparse, os, subprocess, sys, tempfile
+import argparse
+import os
+import sys
+
 import numpy as np
 
 DIM = 128            # feature dim == hidden dim == matmul K/N (NPU tile size)
 FRAMES = 128         # frames per window == matmul M (batch; amortizes dispatch)
 ROOT = os.path.dirname(os.path.abspath(__file__))
-IREE_RUN = os.environ.get("IREE_RUN_MODULE",
-    os.path.expanduser("~/src/iree-amd-aie/iree-install/bin/iree-run-module"))
 VMFB = os.environ.get("KWS_VMFB", os.path.join(ROOT, "dense_npu.vmfb"))
+RUNNER = os.environ.get(
+    "NPU_RUNNER_DIR",
+    os.path.normpath(os.path.join(ROOT, "..", "..", "tools", "npu-runner")),
+)
+sys.path.insert(0, RUNNER)
+from npu import NPU  # noqa: E402
+
+_NPU = None
 
 # ───────────────────────── NPU dense layer ──────────────────────────
 def npu_dense(A: np.ndarray, W: np.ndarray) -> np.ndarray:
     """out = A @ W, computed on the NPU. A,W are int32 [128,128]; returns int32 [128,128]."""
-    assert A.shape == (FRAMES, DIM) and W.shape == (DIM, DIM)
-    with tempfile.TemporaryDirectory() as d:
-        ap, wp, op = (os.path.join(d, f) for f in ("a.npy", "w.npy", "o.npy"))
-        np.save(ap, A.astype(np.int32)); np.save(wp, W.astype(np.int32))
-        r = subprocess.run([IREE_RUN, f"--module={VMFB}", "--device=amdxdna",
-            "--amdxdna_n_core_rows=4", "--amdxdna_n_core_cols=4", "--function=dense",
-            f"--input=@{ap}", f"--input=@{wp}", f"--output=@{op}"],
-            capture_output=True, text=True)
-        if r.returncode != 0:
-            sys.exit(f"NPU dispatch failed:\n{r.stderr}")
-        return np.load(op)
+    if _NPU is None:
+        raise RuntimeError("NPU context is not open")
+    if A.shape != (FRAMES, DIM) or W.shape != (DIM, DIM):
+        raise ValueError(
+            f"dense requires ({FRAMES}, {DIM}) @ ({DIM}, {DIM}); "
+            f"got {A.shape} @ {W.shape}"
+        )
+    return _NPU.matmul(A, W)
 
 def relu_requant(x: np.ndarray, shift: int) -> np.ndarray:
     """CPU elementwise: ReLU then a fixed-point downscale (keeps int32 from overflowing)."""
@@ -108,7 +112,9 @@ def synth(kind, sr=16000, dur=1.0):
         s = sum(np.sin(2*np.pi*fz*t) for fz in (450, 900, 1800))
         s *= np.clip(np.minimum(t, dur-t)*20, 0, 1)   # 50 ms fade in/out
     else:
-        s = np.random.randn(len(t))
+        # A fixed seed makes the public self-test and its pass/fail result
+        # reproducible instead of depending on process-global RNG state.
+        s = np.random.default_rng(0).standard_normal(len(t))
     return s/(np.abs(s).max()+1e-9)
 
 # ─────────────────────────── detection ──────────────────────────────
@@ -138,7 +144,7 @@ def matched_filter_weights(template):
 
 # ─────────────────────────────── main ───────────────────────────────
 def main():
-    ap = argparse.ArgumentParser(description="Wake-word detector with dense layers on the XDNA1 NPU")
+    ap = argparse.ArgumentParser(description="Wake-word detector with dense layers on an AMD XDNA NPU")
     ap.add_argument("--selftest", action="store_true", help="matched-filter demo: target vs noise")
     ap.add_argument("--wav", help="WAV file (16 kHz mono) to score")
     ap.add_argument("--weights", help="npz with W1,W2,W3 int32 (else random / matched-filter)")
@@ -148,41 +154,64 @@ def main():
     if not os.path.exists(VMFB):
         sys.exit(f"NPU module not built: {VMFB}\nRun ./run.sh (it compiles dense_npu.mlir first).")
 
+    if not args.selftest and not args.wav:
+        ap.error("pass --selftest or --wav FILE")
+
     if args.weights:
-        z = np.load(args.weights); W1, W2, W3 = z["W1"], z["W2"], z["W3"]
+        z = np.load(args.weights)
+        W1, W2, W3 = z["W1"], z["W2"], z["W3"]
     elif args.selftest:
         W1, W2, W3 = matched_filter_weights(make_template())
     else:                                       # random untrained head
         rng = np.random.default_rng(0)
         W1, W2, W3 = (rng.integers(0, 3, (DIM, DIM), dtype=np.int32) for _ in range(3))
 
+    generation = os.environ.get("NPU_GENERATION", "XDNA")
+    vbnv = os.environ.get("NPU_VBNV", "auto-detected")
+    print(f"NPU device : {generation} ({vbnv})")
     print(f"NPU module : {VMFB}")
     print(f"threshold  : {args.threshold}\n")
 
-    if args.selftest:
-        print("Self-test — identical NPU pipeline on a target pattern vs background noise:")
-        p, _ = detect(synth("wake"),  W1, W2, W3, None, "wake word")
-        n, _ = detect(synth("noise"), W1, W2, W3, None, "background")
-        sugg = (p + n) // 2
-        print()
-        if p >= 2 * max(n, 1):
-            print(f"RESULT: ✅ clear separation (wake {p} ≫ noise {n}) — the 3-dispatch NPU MLP works.")
-            print(f"        Pick a threshold around {sugg}:  ./run.sh --wav your.wav --threshold {sugg}")
+    global _NPU
+    _NPU = NPU(VMFB, "module.dense")
+    try:
+        if args.selftest:
+            print("Self-test — identical NPU pipeline on a target pattern vs background noise:")
+            p, _ = detect(synth("wake"), W1, W2, W3, None, "wake word")
+            n, _ = detect(synth("noise"), W1, W2, W3, None, "background")
+            sugg = (p + n) // 2
+            print()
+            if p >= 2 * max(n, 1):
+                print(f"RESULT: ✅ clear separation (wake {p} ≫ noise {n}) — the persistent 3-dispatch NPU MLP works.")
+                print(f"        Pick a threshold around {sugg}:  ./run.sh --wav your.wav --threshold {sugg}")
+                result = 0
+            else:
+                print(f"RESULT: ⚠️ weak separation (wake {p} vs noise {n}); these are illustrative weights — train a real head.")
+                result = 1
         else:
-            print(f"RESULT: ⚠️ weak separation (wake {p} vs noise {n}); these are illustrative weights — train a real head.")
-    elif args.wav:
-        sig = load_wav(args.wav)
-        detect(sig, W1, W2, W3, args.threshold, os.path.basename(args.wav))
-    else:
-        ap.error("pass --selftest or --wav FILE")
+            sig = load_wav(args.wav)
+            detect(sig, W1, W2, W3, args.threshold, os.path.basename(args.wav))
+            result = 0
+    finally:
+        _NPU.close()
+        _NPU = None
+    return result
 
 def load_wav(path):
     import wave
     with wave.open(path, "rb") as w:
-        sr, n = w.getframerate(), w.getnframes()
+        sr, n, channels, width = (
+            w.getframerate(), w.getnframes(), w.getnchannels(), w.getsampwidth()
+        )
+        if sr != 16000 or channels not in (1, 2) or width != 2:
+            raise ValueError(
+                "WAV must be 16 kHz, 16-bit PCM, mono or stereo; "
+                f"got {sr} Hz, {8 * width}-bit, {channels} channel(s)"
+            )
         raw = np.frombuffer(w.readframes(n), dtype=np.int16).astype(np.float32)
-    if w.getnchannels() == 2: raw = raw.reshape(-1, 2).mean(1)
+    if channels == 2:
+        raw = raw.reshape(-1, 2).mean(1)
     return raw/32768.0
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())

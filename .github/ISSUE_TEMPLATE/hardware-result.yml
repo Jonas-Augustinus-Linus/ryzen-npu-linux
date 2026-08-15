@@ -1,0 +1,52 @@
+name: Hardware result
+description: Share a reproducible pass or failure from an AMD XDNA NPU.
+title: "result: <chip> / <distro> / <pass|fail>"
+labels: [hardware-result]
+body:
+  - type: markdown
+    attributes:
+      value: Thanks for adding a data point to the open Linux NPU compatibility map. Remove serial numbers and other private machine data from logs.
+  - type: input
+    id: hardware
+    attributes:
+      label: CPU / NPU
+      placeholder: Ryzen AI 9 HX 370 / RyzenAI-npu4 (Strix Point)
+    validations:
+      required: true
+  - type: input
+    id: software
+    attributes:
+      label: Distribution / kernel / firmware
+      placeholder: Ubuntu 26.04 / Linux 7.0 / NPU firmware 1.1.2.64
+    validations:
+      required: true
+  - type: dropdown
+    id: generation
+    attributes:
+      label: Target
+      options:
+        - XDNA1 / npu1_4col
+        - XDNA2 Strix Point / npu4
+        - Other or not detected
+    validations:
+      required: true
+  - type: textarea
+    id: verification
+    attributes:
+      label: Verification output
+      description: Paste detect-npu and verify-stack result lines, including the first error if it failed.
+      render: shell
+    validations:
+      required: true
+  - type: textarea
+    id: changes
+    attributes:
+      label: Changes from the documented recipe
+      placeholder: None, or list exact overrides/patches.
+  - type: checkboxes
+    id: privacy
+    attributes:
+      label: Privacy check
+      options:
+        - label: I removed serial numbers, usernames, tokens, and other private data from the logs.
+          required: true

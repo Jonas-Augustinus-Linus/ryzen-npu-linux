@@ -2,7 +2,15 @@
 
 # npu-runner — 常駐型 AMD XDNA NPU 呼び出し器（IREE ランタイム C API）
 
-![npu-runner demo](../../docs/media/npu-runner.gif)
+**XDNA2 / Strix Point — 現在の実機検証:** i32・bf16 の CPU
+リファレンス完全一致の後、`npu_runner` の 16,384 個の出力すべてが
+PASS した。
+
+![XDNA2 Strix Point 上で npu-runner の全出力を検証する実機デモ](../../docs/media/xdna2-compute.gif)
+
+**XDNA1 / Phoenix — 従来の常駐 runner 記録:**
+
+![XDNA1 Phoenix npu-runner デモ](../../docs/media/npu-runner.gif)
 
 `.vmfb` を **一度だけ** ロードし、呼び出しごとに `iree-run-module` を起動するのではなく、
 同一プロセス内で NPU を何度も呼び出します。7840U/XDNA1 での実測値は **約 3.7 ms/invoke 対

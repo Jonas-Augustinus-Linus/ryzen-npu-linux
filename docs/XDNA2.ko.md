@@ -2,9 +2,11 @@
 
 # XDNA2 (Strix) — 무엇이 달라지고, 무엇이 이어지는가
 
-이 저장소는 **XDNA1**(Phoenix/Hawk Point)을 위한 검증된 지도다. XDNA1에서는
-소스에서 빌드한 `iree-amd-aie`가 여전히 Linux에서 NPU 연산을 돌리는 *유일한*
-길이다. 이 페이지는 **XDNA2**(Strix Point / Strix Halo / Krackan)에 대한 솔직한
+이 저장소의 XDNA1 실기 검증 근거는 Phoenix / Ryzen 7 PRO 7840U에서
+얻은 것이다. Hawk Point는 매핑 대상인 `RyzenAI-npu1` 식별자를 공유하지만,
+이 저장소에는 아직 별도의 실기 결과가 없다. 이 문서가 다루는 XDNA1 경로에서는
+소스에서 빌드한 `iree-amd-aie`가 Linux에서 사용한 연산 경로다. 이 페이지는
+**XDNA2**(Strix Point / Strix Halo / Krackan)에 대한 솔직한
 델타다: 이 저장소의 레시피와 도구 중 무엇이 그대로 이어지는지, 2세대에서 무엇이
 달라지는지, 그리고 열린 최전선이 지금 어디에 있는지.
 
@@ -15,6 +17,12 @@
   · 인트리 `amdxdna` · NPU FW 1.1.2.64**.
 - **🔎 조사됨(Researched)** — 상류(upstream) 저장소/문서/벤치마크(2026년 8월)에서
   취합했고, 인라인으로 링크를 달았으며, 여기서 아직 재현하지는 않았다.
+
+> **이 릴리스의 실행 지원 범위는 XDNA2 제품군 설명보다 좁다.** 실기 검증과
+> 자동 매핑을 완료한 대상은 Strix Point `RyzenAI-npu4` / IREE `npu4`뿐이다.
+> Strix Halo `npu5`와 Krackan `npu6`는 배경 정보일 뿐이며, 검증된 타깃과 CPU
+> 기준 결과가 기여되기 전까지 `scripts/detect-npu.sh`가 거부한다.
+> [SUPPORT.md](SUPPORT.md)를 참고하라.
 
 ## TL;DR
 
@@ -59,8 +67,10 @@ XDNA2 머신에서 수정 없이 `scripts/check-npu.sh`를 실행하자 스크�
    `pam_limits` 메커니즘이다; GUI 터미널은 `user@<uid>.service`의 자식이라
    대신 *그 서비스의* 8 MB `LimitMEMLOCK`을 물려받고, lingering이 켜져 있으면
    재로그인을 해도 그 서비스는 결코 재시작되지 않는다. 이제 `enable-npu.sh`는
-   `user@.service` drop-in도 함께 쓰고 호출한 셸에 `prlimit`을 건다 — 전체
-   해부는 [GOTCHAS #0](GOTCHAS.ko.md)에 있다.
+   UID 전용 `user@<uid>.service.d` drop-in을 쓰고, 과거에 직접 관리하던
+   기존 wildcard drop-in과 정확히 일치할 때만 그것을 비활성화하며,
+   호출한 셸에 `prlimit`을 건다 — 전체 해부는
+   [GOTCHAS #0](GOTCHAS.ko.md)에 있다.
 3. **펌웨어는 출고 상태 그대로 최신이다**: FW 1.1.2.64가
    `amdnpu/17f0_10/`에서 로드되었다 — FastFlowLM이 요구하는 ≥ 1.1.0.0 하한선을 넘는다.
 
@@ -89,6 +99,11 @@ XRT에게 Strix Point는 `npu4`다. *여기까지* 오는 데 소스 빌드는 �
 XDNA2/Ubuntu 26.04에서 활성화는 컴파일이 아니라 설정의 문제다.
 
 ## ✅ 연산: XDNA2 NPU에서 검증됨 (같은 머신, 2026-08-15)
+
+**실제 하드웨어 녹화:** IREE `npu4` CPU 참조값 정확도 비교,
+`npu-runner` 전체 출력 검증, XRT·HRX를 이용한 8컬럼 IRON 커널 실행:
+
+![IREE, npu-runner, XRT, HRX로 진행한 XDNA2 Strix Point 실기 연산 검증](media/xdna2-compute.gif)
 
 IRON 트랙은 활성화가 자리 잡은 바로 그날 돌아갔다 — `setup-mlir-aie.sh`
 무수정, mlir-aie **1.4.1**(cp314 wheel), Peano wheel, Ubuntu의 `pyxrt`.
@@ -174,7 +189,7 @@ bfp16ebs8 경로와는 다르다. 별도의 Peano 21 누적 스윕은 K=1216에�
 | 자산 | XDNA2 상태 | 달라지는 것 |
 |---|---|---|
 | `scripts/check-npu.sh` | ✅ 동작함 (이 커밋) | XDNA2 PCI 문자열 + 세대 보고; [6] 성공 쪽 SIGPIPE 수정; [5]는 이제 pam 대 systemd memlock 분리를 진단한다 |
-| `scripts/enable-npu.sh` | ✅ 동작함 (이 커밋에서 확장됨) | 동일한 3가지 차단 요인; Ubuntu 26.04가 패키지를 미리 설치해 둔다 — 다만 systemd 데스크톱에서는 memlock 수정에 limits.d 위에 `user@.service` drop-in이 추가로 필요하다 ([gotcha #0](GOTCHAS.ko.md)) |
+| `scripts/enable-npu.sh` | ✅ 동작함 (이 커밋에서 확장됨) | 동일한 3가지 차단 요인; Ubuntu 26.04가 패키지를 미리 설치해 둔다 — 다만 systemd 데스크톱에서는 memlock 수정에 limits.d와 UID 전용 `user@<uid>.service.d` drop-in이 필요하며, 스크립트는 자신의 기존 wildcard 파일과 정확히 일치할 때만 그것을 비활성화한다 ([gotcha #0](GOTCHAS.ko.md)) |
 | `scripts/build.sh` (iree-amd-aie) | ✅ 실기 검증 | Strix에서 소스 빌드+설치 완료; 제한된 병렬도로 관측된 OOM을 방지하고, 마지막 검사가 `npu1_4col`과 `npu4`를 모두 요구함; Peano 22 `4a1adefa`로 테스트 |
 | `scripts/run-matmul.sh` | ✅ 실기 검증 | 4×8 격자를 감지해 `npu4`를 선택; XDNA1 경로를 유지하면서 i32 128³과 bf16 512³이 올바르게 컴파일·실행됨 |
 | `tools/npu-runner` | ✅ 실기 검증 | C API 격자 자동 탐지가 4×8을 확인; 네이티브 runner와 ctypes/Python 경로 모두 i32 출력 16,384개 전체를 검증 |

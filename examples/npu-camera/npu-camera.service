@@ -5,7 +5,7 @@
 #   3. cp npu-camera.env.example ~/.config/npu-camera.env   (set CAM=/dev/videoN)
 #   4. systemctl --user daemon-reload && systemctl --user enable --now npu-camera
 [Unit]
-Description=NPU camera — XDNA1 NPU video filter to /dev/video10
+Description=NPU camera — AMD XDNA NPU video filter to /dev/video10
 After=graphical-session.target
 PartOf=graphical-session.target
 

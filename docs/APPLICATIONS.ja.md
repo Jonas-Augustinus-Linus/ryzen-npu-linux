@@ -77,7 +77,10 @@ MLIR** だけを与える。実際のモデルをインポートするには、�
 **IREE を再ビルド** しなければならない。(b) サポートされない演算 (#21633 までの softmax、
 attention、layernorm、depthwise、embedding、動的シェイプ) はすべて **ハードなコンパイルエラー**
 なので、避けるか CPU に残さなければならない。(c) タイリングフラグは手動でチューニングする。
-**npu1 でパスするリポジトリ内のモデル全体 (ResNet/MLP/transformer) の e2e テストは存在しない。**
+現在は **ハイブリッド ONNX MLP e2e** がある。`npu-trim` が 2 つの matmul を抽出し、
+永続 runner が XDNA1 または Strix Point npu4 で実行し、ReLU は明示的に CPU に残す。
+これは ResNet/transformer 全体を 1 つの NPU グラフへコンパイルすることとは異なり、
+そのような e2e は主張していない。
 
 **このマシンでの実測上限:** bf16 matmul は **1024³ で ~220 GFLOP/s** (本来の強み)、
 `i32` は ~6 GFLOP/s (AIE のネイティブ型ではない)、小さな matmul は

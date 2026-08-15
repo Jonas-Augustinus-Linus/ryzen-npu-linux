@@ -2,9 +2,11 @@
 
 # XDNA2（Strix）— 何が変わり、何が引き継がれるか
 
-このリポジトリは **XDNA1**（Phoenix/Hawk Point）の検証済みマップである。XDNA1 では、
-ソースからビルドした `iree-amd-aie` が今なお Linux 上で NPU にコンピュートを実行させる
-*唯一の* 方法だ。このページは **XDNA2**（Strix Point / Strix Halo / Krackan）との差分を
+このリポジトリの XDNA1 実機エビデンスは Phoenix / Ryzen 7 PRO 7840U で
+得られた。Hawk Point はマッピング対象の `RyzenAI-npu1` 識別子を共有するが、
+ここにはまだ個別の実機結果がない。この文書で扱う XDNA1 経路では、ソースから
+ビルドした `iree-amd-aie` が Linux 上で使用したコンピュート経路である。このページは
+**XDNA2**（Strix Point / Strix Halo / Krackan）との差分を
 正直にまとめたものである: このリポジトリのレシピとツールのうち何が引き継がれ、
 第2世代で何が変わり、オープンな最前線が今どこにあるのか。
 
@@ -15,6 +17,12 @@
   · in-tree `amdxdna` · NPU FW 1.1.2.64**。
 - **🔎 調査済み** — アップストリームのリポジトリ/ドキュメント/ベンチマーク（2026年8月）に
   基づくもので、リンクは本文中に併記。ここではまだ再現していない。
+
+> **このリリースで実行可能な対応範囲は、製品群の概説より狭いです。**
+> 実機検証と自動割り当てが済んでいるのは Strix Point `RyzenAI-npu4` / IREE
+> `npu4` のみです。Strix Halo `npu5` と Krackan `npu6` は背景情報であり、
+> 検証済みターゲットと CPU リファレンス結果が提供されるまで
+> `scripts/detect-npu.sh` は拒否します。[SUPPORT.md](SUPPORT.md) を参照してください。
 
 ## TL;DR
 
@@ -59,8 +67,10 @@ XDNA2 ではもはや最前線ではないという事実だ。**最前線は、
    仕組みであり、GUI ターミナルは `user@<uid>.service` の子プロセスとして *その*
    8 MB の `LimitMEMLOCK` を代わりに継承する。しかも lingering が有効だと、
    再ログインしてもそのサービスは二度と再起動されない。`enable-npu.sh` は現在、
-   `user@.service` の drop-in も書き込み、呼び出し元のシェルに `prlimit` を適用する —
-   完全な解剖は [GOTCHAS #0](GOTCHAS.ja.md) にある。
+   UID 固有の `user@<uid>.service.d` drop-in を書き込み、過去に自身が管理した
+   旧 wildcard drop-in と完全に一致する場合にのみそれを無効化し、呼び出し元の
+   シェルに `prlimit` を適用する — 完全な解剖は
+   [GOTCHAS #0](GOTCHAS.ja.md) にある。
 3. **ファームウェアは最初から最新である**: FW 1.1.2.64 が
    `amdnpu/17f0_10/` からロードされる — FastFlowLM が要求する下限 ≥ 1.1.0.0 を上回っている。
 
@@ -89,6 +99,11 @@ RyzenAI-npu4
 XDNA2/Ubuntu 26.04 での有効化はコンパイルではなく設定の問題だ。
 
 ## ✅ コンピュート: XDNA2 NPU 上で検証済み（同じマシン、2026-08-15）
+
+**実機のライブ記録:** IREE `npu4` の CPU リファレンス完全一致、
+`npu-runner` の全出力検証、XRT・HRX による 8 カラム IRON カーネルの実行:
+
+![IREE、npu-runner、XRT、HRX による XDNA2 Strix Point 実機コンピュート検証](media/xdna2-compute.gif)
 
 IRON トラックは有効化が完了したその日のうちに動いた — `setup-mlir-aie.sh` は
 無改変、mlir-aie **1.4.1**（cp314 wheel）、Peano wheel、Ubuntu の `pyxrt`。
@@ -174,7 +189,7 @@ K=1216 でパスし、K=1280 で初めて失敗した。この IREE の表はそ
 | 資産 | XDNA2 での状態 | 何が変わるか |
 |---|---|---|
 | `scripts/check-npu.sh` | ✅ 動作する（このコミット） | XDNA2 の PCI 文字列と世代の報告。[6] の成功側 SIGPIPE 修正。[5] は pam 対 systemd の memlock 分裂を診断するように |
-| `scripts/enable-npu.sh` | ✅ 動作する（このコミットで拡張） | 同じ 3 つのブロッカー。Ubuntu 26.04 はパッケージをプリインストール済み — ただし systemd デスクトップでは、memlock の修正に limits.d に加えて `user@.service` の drop-in が必要（[落とし穴 #0](GOTCHAS.ja.md)） |
+| `scripts/enable-npu.sh` | ✅ 動作する（このコミットで拡張） | 同じ 3 つのブロッカー。Ubuntu 26.04 はパッケージをプリインストール済み — ただし systemd デスクトップでは、memlock の修正に limits.d に加えて UID 固有の `user@<uid>.service.d` drop-in が必要であり、スクリプトは自身の旧 wildcard ファイルと完全に一致する場合にのみそれを無効化する（[落とし穴 #0](GOTCHAS.ja.md)） |
 | `scripts/build.sh`（iree-amd-aie） | ✅ 実機検証済み | Strix でソースビルド+インストール完了。並列度の制限で実際に発生した OOM を防ぎ、最終チェックで `npu1_4col` と `npu4` の両方を必須とする。Peano 22 `4a1adefa` でテスト |
 | `scripts/run-matmul.sh` | ✅ 実機検証済み | 4×8 グリッドを検出して `npu4` を選択。XDNA1 経路を維持しつつ i32 128³ と bf16 512³ が正しくコンパイル・実行された |
 | `tools/npu-runner` | ✅ 実機検証済み | C API のグリッド自動検出で4×8を解決。ネイティブ runner と ctypes/Python 経路の両方で i32 出力 16,384 値を全て検証 |

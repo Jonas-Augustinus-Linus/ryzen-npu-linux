@@ -74,8 +74,11 @@ NPU에서 디스패치 그래프로 실행될 수 있다. 단: (a) 이 빌드는
 MLIR**만 넣을 수 있다. 실제 모델을 임포트하려면 그 프론트엔드를 켠 채 **IREE를 다시
 빌드**해야 한다. (b) 지원되지 않는 op(#21633 전까지의 softmax, attention,
 layernorm, depthwise, embedding, 동적 shape)는 **하드 컴파일 에러**이므로, 피하거나
-CPU에 남겨 둬야 한다. (c) 타일링 플래그는 직접 튜닝한다. **npu1에서 통과하는
-저장소 내 모델 전체(ResNet/MLP/transformer) e2e 테스트는 없다.**
+CPU에 남겨 둬야 한다. (c) 타일링 플래그는 직접 튜닝한다. 이제 저장소에는
+**하이브리드 ONNX MLP e2e**가 있다. `npu-trim`이 두 matmul을 추출하고 지속형
+runner가 XDNA1 또는 Strix Point npu4에서 실행하며 ReLU는 명시적으로 CPU에
+남긴다. 이는 전체 ResNet/transformer를 단일 NPU 그래프로 컴파일한 것이 아니며,
+그러한 e2e는 주장하지 않는다.
 
 **이 머신에서 측정된 상한:** bf16 matmul **1024³에서 ~220 GFLOP/s**(본래
 강점), `i32` ~6 GFLOP/s(AIE의 네이티브 타입이 아님), 작은 matmul은

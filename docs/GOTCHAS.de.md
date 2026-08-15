@@ -9,10 +9,10 @@ generationsunabhängig und beißt beim *Aktivieren*, vor jedem Build.)
 
 ---
 
-## 0. limits.d sagt memlock `unlimited` — dein Terminal hat trotzdem 8 MB
+## 0. limits.d sagt memlock 1 GiB — dein Terminal hat trotzdem 8 MB
 
-**Symptom.** `enable-npu.sh` ist gelaufen, `/etc/security/limits.d/99-xrt-npu.conf` sagt
-`unlimited`, du hast dich ab- und wieder angemeldet — und trotzdem:
+**Symptom.** `enable-npu.sh` ist gelaufen, die UID-spezifische Datei unter
+`/etc/security/limits.d/` sagt `1048576` KiB, du hast dich ab- und wieder angemeldet — und trotzdem:
 
 ```
 $ ulimit -l
@@ -44,20 +44,27 @@ einen davon ab:
   `user@<uid>.service` **nicht** — selbst nachdem du den Service repariert hast, startet
   ein erneutes Anmelden ihn also nie mit dem neuen Limit neu. Das schafft nur ein Reboot.
 
-**Fix** (was `enable-npu.sh` jetzt macht): den limits.d-Eintrag für den PAM-Pfad
-behalten *und* ein Drop-in für den User-Manager hinzufügen, dann einmal rebooten:
+**Fix** (was `enable-npu.sh` jetzt macht): für den ausgewählten Benutzer sowohl
+im PAM-Pfad als auch im UID-spezifischen User-Manager-Drop-in ein endliches
+Standardlimit von 1 GiB setzen, dann einmal rebooten:
 
 ```
-# /etc/systemd/system/user@.service.d/99-xrt-npu-memlock.conf
+# /etc/systemd/system/user@1000.service.d/99-xrt-npu-memlock.conf
+# (1000 ist die UID des Zielbenutzers)
 [Service]
-LimitMEMLOCK=infinity
+LimitMEMLOCK=1073741824
 ```
+
+Das Skript deaktiviert sicher die exakte Wildcard-`infinity`-Datei älterer
+Versionen, überschreibt keine Administrator-Dateien und unterstützt
+`--uninstall`. Mit `MEMLOCK_KB` lässt sich ein anderes endliches Limit zwischen
+64 MiB und 16 GiB wählen.
 
 Um eine bereits laufende Shell ohne Reboot zu entsperren (Kindprozesse erben
 rlimits):
 
 ```bash
-sudo prlimit --pid $$ --memlock=unlimited:unlimited
+sudo prlimit --pid $$ --memlock=1073741824:1073741824
 ```
 
 `check-npu.sh [5]` erkennt jetzt genau diese Diskrepanz — limits.d gewährt es, der
@@ -110,7 +117,7 @@ reichen aus.
 
 ---
 
-## 3. Die fixierte Peano-(llvm-aie)-Version ist abgelaufen
+## 3. Der Upstream-Peano-Pin ist abgelaufen — Nightlies nicht still nachjagen
 
 **Symptom**
 ```
@@ -121,13 +128,14 @@ ERROR: Could not find a version that satisfies the requirement
 Xilinx-Nightly-Index behält nur aktuelle Builds — die Fixierung (upstream seit
 ~13 Monaten unverändert) ist längst weg.
 
-**Fix.** Die Fixierung auf das neueste verfügbare Nightly zeigen lassen:
-```bash
-echo "<latest-nightly-version>" > build_tools/peano_commit_linux.txt
-bash build_tools/download_peano.sh
-```
-`scripts/build.sh` macht das automatisch, indem es den Index abfragt. Das neuere Peano
-funktioniert trotz des Versionssprungs einwandfrei (es ist das AIE-LLVM-Backend; die Schnittstelle ist stabil).
+**Fix.** Dieses Repository hält die hardwareverifizierte Peano-Version samt
+Commit in `versions.lock` fest. `scripts/build.sh` installiert genau dieses Wheel,
+ohne Upstreams versionierte Datei `build_tools/peano_commit_linux.txt` zu ändern,
+und prüft anschließend Metadaten und `clang`-Commit. Ist das Asset nicht mehr
+verfügbar, bricht der Build absichtlich ab. Ein Maintainer muss einen Ersatz
+testen, `versions.lock` in einer geprüften Änderung aktualisieren und die
+Hardware-Abnahmetests erneut ausführen; Benutzer sollen nie still das neueste
+Nightly einsetzen.
 
 ---
 

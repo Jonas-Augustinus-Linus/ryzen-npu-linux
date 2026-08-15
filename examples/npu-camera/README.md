@@ -4,16 +4,21 @@
 
 ![npu-camera demo](../../docs/media/npu-camera.gif)
 
-Captures video, runs **every frame through the XDNA1 NPU**, and publishes the
+Captures video, runs **every frame through an XDNA1 or XDNA2 NPU**, and publishes the
 result to the `/dev/video10` virtual camera (usable by Zoom / Chrome / OBS / Meet).
+
+> The recording above was made on XDNA1. The same source now uses the runner's
+> runtime geometry discovery and a device-matched VMFB on XDNA1 or Strix Point npu4.
 
 ```
 source ─▶ GStreamer appsink ─▶ NPU (2× 128×128 i32 matmul = 2D box blur) ─▶ appsrc ─▶ v4l2sink (/dev/video10)
 ```
 
-Measured: **30 fps** with 2 NPU dispatches/frame, via
+Original XDNA1 measurement: **30 fps** with 2 NPU dispatches/frame, via
 [`../../tools/npu-runner/libnpu.so`](../../tools/npu-runner) (load-once ctypes,
 ~4 ms/call — not the per-call `iree-run-module` cost).
+The npu4 processing function is hardware-correctness-tested; no XDNA2 camera FPS
+is claimed yet.
 
 > The NPU op here is a real per-frame 2D blur (matmul). A true *background* blur
 > swaps in a segmentation conv model — the capture→NPU→virtual-cam plumbing is
@@ -25,13 +30,18 @@ Measured: **30 fps** with 2 NPU dispatches/frame, via
 2. The virtual camera `/dev/video10` (signed v4l2loopback):
    ```bash
    sudo apt install -y linux-modules-v4l2loopback-generic v4l2loopback-utils \
-       v4l-utils gstreamer1.0-plugins-good gstreamer1.0-plugins-base gstreamer1.0-tools python3-gi
+       v4l-utils gstreamer1.0-plugins-good gstreamer1.0-plugins-base gstreamer1.0-tools \
+       python3-gi python3-numpy
    sudo modprobe v4l2loopback devices=1 video_nr=10 card_label="NPU Camera" exclusive_caps=1
    ```
    (persist via `/etc/modules-load.d/` + `/etc/modprobe.d/`; see the repo's setup notes).
 3. The NPU bridge built: `(cd ../../tools/npu-runner && ./build_lib.sh)`.
-4. The NPU kernel: `~/src/iree-amd-aie/run_npu_matmul.sh 2 3 && cp /tmp/matmul_npu.vmfb ./matmul.vmfb`
-   (a persistent copy — `/tmp` is wiped on boot).
+4. A kernel compiled for the NPU currently installed in the machine:
+   ```bash
+   VMFB_OUT="$PWD/matmul.vmfb" ../../scripts/run-matmul.sh i32 128 128 128 2 3
+   ```
+   `run-matmul.sh` detects XDNA1 (`npu1_4col`) or Strix Point XDNA2 (`npu4`)
+   and also compares every output element with its CPU reference before saving it.
 
 ## Run
 

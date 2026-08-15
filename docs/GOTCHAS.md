@@ -9,10 +9,10 @@ generation-independent and bites at *activation* time, before any build.)
 
 ---
 
-## 0. limits.d says memlock `unlimited` — your terminal still has 8 MB
+## 0. limits.d says memlock 1 GiB — your terminal still has 8 MB
 
-**Symptom.** `enable-npu.sh` ran, `/etc/security/limits.d/99-xrt-npu.conf` says
-`unlimited`, you logged out and back in — and still:
+**Symptom.** `enable-npu.sh` ran, the UID-specific file in
+`/etc/security/limits.d/` says `1048576` KiB, you logged out and back in — and still:
 
 ```
 $ ulimit -l
@@ -44,20 +44,26 @@ covers one of them:
   `user@<uid>.service` — so even after you fix the service, a re-login never
   restarts it with the new limit. Only a reboot does.
 
-**Fix** (what `enable-npu.sh` now does): keep the limits.d entry for the PAM
-path *and* add a drop-in for the user manager, then reboot once:
+**Fix** (what `enable-npu.sh` now does): write a finite 1 GiB default for the
+selected user in both the PAM path and that UID's user-manager drop-in, then
+reboot once:
 
 ```
-# /etc/systemd/system/user@.service.d/99-xrt-npu-memlock.conf
+# /etc/systemd/system/user@1000.service.d/99-xrt-npu-memlock.conf
+# (1000 is the target user's UID)
 [Service]
-LimitMEMLOCK=infinity
+LimitMEMLOCK=1073741824
 ```
+
+The script safely disables the exact wildcard `infinity` file created by older
+releases, never overwrites administrator-owned content, and supports
+`--uninstall`. `MEMLOCK_KB` can select another finite 64 MiB–16 GiB limit.
 
 To unblock an already-running shell without rebooting (children inherit
 rlimits):
 
 ```bash
-sudo prlimit --pid $$ --memlock=unlimited:unlimited
+sudo prlimit --pid $$ --memlock=1073741824:1073741824
 ```
 
 `check-npu.sh [5]` now detects exactly this split — limits.d grants it, the
@@ -110,7 +116,7 @@ binaries are enough.
 
 ---
 
-## 3. The pinned Peano (llvm-aie) version has expired
+## 3. The upstream Peano pin expired — do not silently chase nightlies
 
 **Symptom**
 ```
@@ -121,13 +127,13 @@ ERROR: Could not find a version that satisfies the requirement
 Xilinx nightly index only keeps recent builds — the pin (untouched upstream for
 ~13 months) is long gone.
 
-**Fix.** Point the pin at the newest available nightly:
-```bash
-echo "<latest-nightly-version>" > build_tools/peano_commit_linux.txt
-bash build_tools/download_peano.sh
-```
-`scripts/build.sh` does this automatically by querying the index. The newer Peano
-works fine despite the version jump (it's the AIE LLVM backend; the interface is stable).
+**Fix.** This repository records the hardware-verified Peano version and commit
+in `versions.lock`. `scripts/build.sh` installs exactly that wheel without
+rewriting upstream's tracked `build_tools/peano_commit_linux.txt`, then verifies
+the version metadata and `clang` commit. If the asset is unavailable, the build
+fails intentionally. A maintainer must validate a replacement, update
+`versions.lock` in a reviewed change, and rerun the hardware acceptance tests;
+users should not substitute the newest nightly silently.
 
 ---
 

@@ -76,8 +76,11 @@ no Python bindings, and ships **no `iree-import-onnx`**; you feed it hand-writte
 **linalg-level MLIR** only. To import a real model you must **rebuild IREE** with
 those frontends ON. (b) Any unsupported op (softmax until #21633, attention,
 layernorm, depthwise, embeddings, dynamic shapes) is a **hard compile error**, so
-you must avoid it or keep it on CPU. (c) You hand-tune tiling flags. There is **no
-in-repo whole-model (ResNet/MLP/transformer) e2e test that passes on npu1.**
+you must avoid it or keep it on CPU. (c) You hand-tune tiling flags. The repo now
+includes an **ONNX MLP hybrid e2e**: `npu-trim` extracts its two matmuls, the
+persistent runner executes them on XDNA1 or Strix Point npu4, and ReLU remains
+explicitly on the CPU. That is not the same as compiling a whole
+ResNet/transformer into one NPU graph; no such in-repo e2e is claimed.
 
 **Measured ceiling on this box:** bf16 matmul **~220 GFLOP/s at 1024³** (native
 strength), `i32` ~6 GFLOP/s (not the AIE's native type), small matmuls are

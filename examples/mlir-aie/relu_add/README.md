@@ -1,5 +1,11 @@
 # Custom IRON kernel — fused `relu(a + b)` on the Ryzen AI NPU
 
+**XDNA2 / Strix Point live hardware:** the recording shows this kernel passing
+with one Worker and the whole 8-column array through both XRT and HRX, following
+the IREE CPU-reference checks from the same session.
+
+![XDNA2 Strix Point live-hardware run of the relu-add IRON kernel through XRT and HRX](../../../docs/media/xdna2-compute.gif)
+
 A hand-written AIE kernel that is **not** one of the stock mlir-aie
 `programming_examples`: a single fused element-wise op
 

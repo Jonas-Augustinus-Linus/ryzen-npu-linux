@@ -76,8 +76,11 @@ sans bindings Python, et n'embarque **aucun `iree-import-onnx`** ; vous lui four
 **MLIR de niveau linalg** écrit à la main. Pour importer un vrai modèle, vous devez **reconstruire IREE** avec
 ces frontends ON. (b) Toute op non prise en charge (softmax jusqu'à #21633, attention,
 layernorm, depthwise, embeddings, formes dynamiques) est une **erreur de compilation dure**, vous
-devez donc l'éviter ou la garder sur le CPU. (c) Vous réglez à la main les flags de tiling. Il n'existe **aucun
-test e2e de modèle entier (ResNet/MLP/transformer) dans le dépôt qui passe sur npu1.**
+devez donc l'éviter ou la garder sur le CPU. (c) Vous réglez à la main les flags de tiling.
+Le dépôt contient désormais un **e2e MLP ONNX hybride** : `npu-trim` extrait ses
+deux matmuls, le runner persistant les exécute sur XDNA1 ou Strix Point npu4, et
+ReLU reste explicitement sur le CPU. Ce n'est pas un graphe ResNet/transformer
+entier compilé dans un seul VMFB ; aucun e2e de ce type n'est revendiqué.
 
 **Plafond mesuré sur cette machine :** matmul bf16 **~220 GFLOP/s à 1024³** (force
 native), `i32` ~6 GFLOP/s (pas le type natif de l'AIE), les petits matmuls sont

@@ -2,9 +2,11 @@
 
 # XDNA2 (Strix) — ce qui change, ce qui se transfère
 
-Ce dépôt est la carte vérifiée pour **XDNA1** (Phoenix/Hawk Point), où
-`iree-amd-aie` compilé depuis les sources reste la *seule* façon d'exécuter du calcul
-sur le NPU sous Linux. Cette page est le delta **XDNA2** (Strix Point / Strix Halo /
+Les preuves matérielles XDNA1 de ce dépôt proviennent d'un Phoenix / Ryzen 7 PRO
+7840U. Hawk Point partage l'identité `RyzenAI-npu1` associée, mais ne dispose ici
+d'aucun résultat matériel distinct. Pour cette voie XDNA1 documentée,
+`iree-amd-aie` compilé depuis les sources est la voie de calcul utilisée sous
+Linux. Cette page est le delta **XDNA2** (Strix Point / Strix Halo /
 Krackan), sans fard : ce qui, parmi les recettes et outils de ce dépôt, se transfère,
 ce que la seconde génération change, et où se situe désormais la frontière ouverte.
 
@@ -15,6 +17,12 @@ Deux types d'affirmations ci-dessous, clairement séparés :
   · `amdxdna` intégré · NPU FW 1.1.2.64**.
 - **🔎 Recherché** — sourcé depuis les dépôts/docs/benchmarks amont (août 2026),
   avec liens dans le texte, pas encore reproduit ici.
+
+> **Le support exécutable de cette version est plus étroit que l'aperçu de la famille :**
+> seul Strix Point `RyzenAI-npu4` / IREE `npu4` est vérifié sur matériel et associé
+> automatiquement. Strix Halo `npu5` et Krackan `npu6` ne sont que du contexte ;
+> `scripts/detect-npu.sh` les refuse sans cible et résultat CPU vérifiés. Voir
+> [SUPPORT.md](SUPPORT.md).
 
 ## TL;DR
 
@@ -59,7 +67,8 @@ Trois constats qui méritent d'être soulignés :
    mécanisme `pam_limits` ; un terminal graphique est un enfant de `user@<uid>.service`
    et hérite à la place du `LimitMEMLOCK` de 8 Mo de *ce service*, et avec le lingering
    activé, même une reconnexion ne redémarre jamais ce service. `enable-npu.sh` écrit
-   désormais aussi un drop-in `user@.service` et applique un `prlimit` au shell
+   désormais un drop-in `user@<uid>.service.d` propre à l'UID, désactive uniquement
+   l'ancien drop-in générique exact qu'il gérait et applique un `prlimit` au shell
    appelant — l'anatomie complète est dans [GOTCHAS #0](GOTCHAS.fr.md).
 3. **Le firmware est à jour d'origine** : FW 1.1.2.64 chargé depuis
    `amdnpu/17f0_10/` — au-dessus du plancher ≥ 1.1.0.0 exigé par FastFlowLM.
@@ -90,6 +99,12 @@ nécessaire pour en arriver *là* — l'activation sur XDNA2/Ubuntu 26.04, c'est
 configuration, pas de la compilation.
 
 ## ✅ Calcul : vérifié sur le NPU XDNA2 (même machine, 2026-08-15)
+
+**Enregistrement en direct sur le matériel réel :** comparaisons exactes avec
+la référence CPU via IREE `npu4`, vérification de toutes les sorties par
+`npu-runner`, puis noyau IRON sur 8 colonnes avec XRT et HRX :
+
+![Vérification en direct du calcul XDNA2 Strix Point avec IREE, npu-runner, XRT et HRX](media/xdna2-compute.gif)
 
 La voie IRON a tourné le jour même où l'activation a abouti — `setup-mlir-aie.sh`
 non modifié, mlir-aie **1.4.1** (wheel cp314), wheel Peano, le `pyxrt` d'Ubuntu.
@@ -180,7 +195,7 @@ ne change pas cette frontière. Ces exécutions de correction ne sont par ailleu
 | Actif | Statut XDNA2 | Ce qui change |
 |---|---|---|
 | `scripts/check-npu.sh` | ✅ fonctionne (ce commit) | chaîne PCI XDNA2 + rapport de génération ; [6] correctif du SIGPIPE côté succès ; [5] diagnostique désormais la divergence memlock pam-vs-systemd |
-| `scripts/enable-npu.sh` | ✅ fonctionne (étendu dans ce commit) | les 3 mêmes blocages ; Ubuntu 26.04 préinstalle les paquets — mais sur un bureau systemd, le correctif memlock exige un drop-in `user@.service` en plus de limits.d ([gotcha #0](GOTCHAS.fr.md)) |
+| `scripts/enable-npu.sh` | ✅ fonctionne (étendu dans ce commit) | les 3 mêmes blocages ; Ubuntu 26.04 préinstalle les paquets — mais sur un bureau systemd, le correctif memlock exige un drop-in `user@<uid>.service.d` propre à l'UID en plus de limits.d ; le script désactive uniquement son ancien fichier générique exact ([gotcha #0](GOTCHAS.fr.md)) |
 | `scripts/build.sh` (iree-amd-aie) | ✅ vérifié sur le matériel | build source + installation achevés sur Strix ; le parallélisme borné évite l'OOM observé et le contrôle final exige `npu1_4col` et `npu4` ; testé avec Peano 22 `4a1adefa` |
 | `scripts/run-matmul.sh` | ✅ vérifié sur le matériel | détecte la grille 4×8 et choisit `npu4` ; i32 128³ et bf16 512³ se compilent et s'exécutent correctement tout en conservant la voie XDNA1 |
 | `tools/npu-runner` | ✅ vérifié sur le matériel | l'auto-détection de grille de l'API C résout 4×8 ; le runner natif et la voie ctypes/Python ont vérifié les 16 384 valeurs de sortie i32 |

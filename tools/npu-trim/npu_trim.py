@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """npu-trim — screen an imported graph and extract NPU-compilable kernels.
 
-The XDNA1 `amd-aie` codegen accepts a *clean, hand-shaped* `linalg.matmul`
+The `amd-aie` codegen accepts a *clean, hand-shaped* `linalg.matmul`
 (bf16→f32) but rejects most **imported** graphs: f32 matmuls crash it, and the
 casts/softmax/layernorm/dynamic-shapes that `iree-import-onnx` wraps around the
 math hit "Unhandled pass pipeline in setRootConfig". So you can't just compile a
@@ -10,33 +10,39 @@ math hit "Unhandled pass pipeline in setRootConfig". So you can't just compile a
   1. import `.onnx` → `linalg` (the hybrid path) if given an ONNX file,
   2. classify every op as ✅ NPU-supported / 🟡 experimental / ⛔ CPU-only,
   3. for each `linalg.matmul`, emit a CLEAN standalone bf16→f32 kernel
-     (shapes padded up to AIE-friendly sizes) — and actually compile it to npu1,
+     (shapes padded up to AIE-friendly sizes) — and compile it for the detected
+     XDNA1 (`npu1_4col`) or Strix Point/XDNA2 (`npu4`) target,
   4. report which kernels lower to the NPU; the rest of the graph stays on CPU.
 
 Usage:
     npu_trim.py <model.onnx | model.linalg.mlir> [--out-dir DIR] [--no-compile]
 
 Env: IREE_AMD_AIE_ROOT (default ~/src/iree-amd-aie), KWS_VENV / IREE_VENV
-     (default ~/src/iree-aie-venv).
+     (default ~/src/iree-aie-venv), DETECT_NPU (shared detector override),
+     TARGET_DEVICE (explicit detector override for known-compatible hardware).
 """
 import argparse
 import os
 import re
 import subprocess
 import sys
+import tempfile
+from pathlib import Path
 
 ROOT = os.path.expanduser(os.environ.get("IREE_AMD_AIE_ROOT", "~/src/iree-amd-aie"))
 VENV = os.path.expanduser(os.environ.get("IREE_VENV", os.environ.get("KWS_VENV", "~/src/iree-aie-venv")))
 IREE = os.path.join(ROOT, "iree-install", "bin")
 PEANO = os.path.join(ROOT, "llvm-aie")
+REPO = os.path.normpath(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", ".."))
+DETECT_NPU = os.environ.get("DETECT_NPU", os.path.join(REPO, "scripts", "detect-npu.sh"))
 G, Y, RED, C, D, B, Rst = "\033[32m", "\033[33m", "\033[31m", "\033[36m", "\033[90m", "\033[1m", "\033[0m"
 
 # op -> (tier, why).  tier: npu | exp | cpu
 OPS = {
-    "linalg.matmul":            ("npu", "bf16→f32 / i32 matmul runs on npu1"),
-    "linalg.matmul_transpose_b": ("npu", "matmul variant runs on npu1"),
-    "linalg.batch_matmul":      ("npu", "batched matmul runs on npu1"),
-    "linalg.conv_2d_nhwc_hwcf": ("npu", "plain 2D conv runs on npu1 (bf16/f32)"),
+    "linalg.matmul":            ("npu", "bf16→f32 / i32 matmul has an amd-aie lowering"),
+    "linalg.matmul_transpose_b": ("npu", "matmul variant has an amd-aie lowering"),
+    "linalg.batch_matmul":      ("npu", "batched matmul has an amd-aie lowering"),
+    "linalg.conv_2d_nhwc_hwcf": ("npu", "plain 2D conv has an amd-aie lowering (bf16/f32)"),
     "linalg.fill":              ("npu", "init — fused into the matmul/conv"),
     "linalg.softmax":           ("exp", "lowering exists but the e2e test is disabled (iree#21633)"),
     "linalg.depthwise_conv_2d_nhwc_hwc": ("exp", "fragile lowering, no guardrails"),
@@ -49,18 +55,53 @@ def run(cmd, **kw):
 
 
 def import_onnx(onnx_path):
-    """ONNX -> linalg MLIR via iree-import-onnx + iree-compile --compile-to=input."""
+    """Return imported linalg MLIR without sharing stale files through /tmp."""
     vbin = os.path.join(VENV, "bin")
-    torch = "/tmp/_npu_trim.torch.mlir"
-    linalg = "/tmp/_npu_trim.linalg.mlir"
-    r = run([os.path.join(vbin, "iree-import-onnx"), onnx_path, "--opset-version", "17", "-o", torch])
+    importer = os.path.join(vbin, "iree-import-onnx")
+    frontend = os.path.join(vbin, "iree-compile")
+    for tool in (importer, frontend):
+        if not os.path.isfile(tool) or not os.access(tool, os.X_OK):
+            sys.exit(f"{RED}required ONNX import tool is missing: {tool}{Rst}")
+
+    with tempfile.TemporaryDirectory(prefix="ryzen-npu-onnx-import.") as work:
+        torch = os.path.join(work, "model.torch.mlir")
+        linalg = os.path.join(work, "model.linalg.mlir")
+        r = run([importer, onnx_path, "--opset-version", "17", "-o", torch])
+        if r.returncode != 0:
+            sys.exit(f"{RED}iree-import-onnx failed:{Rst}\n{r.stderr[-800:]}")
+        r = run([frontend, torch, "--iree-input-type=onnx",
+                 "--compile-to=input", "-o", linalg])
+        if r.returncode != 0:
+            sys.exit(f"{RED}iree-compile --compile-to=input failed:{Rst}\n{r.stderr[-800:]}")
+        try:
+            return Path(linalg).read_text(encoding="utf-8")
+        except OSError as exc:
+            sys.exit(f"{RED}could not read imported MLIR: {exc}{Rst}")
+
+
+def detect_device():
+    """Resolve the verified target and geometry through the repo-wide detector."""
+    if not os.path.isfile(DETECT_NPU) or not os.access(DETECT_NPU, os.X_OK):
+        sys.exit(f"{RED}NPU detector is missing or not executable: {DETECT_NPU}{Rst}")
+    env = os.environ.copy()
+    env["IREE_AMD_AIE_ROOT"] = ROOT
+    r = run([DETECT_NPU, "--tsv"], env=env)
     if r.returncode != 0:
-        sys.exit(f"{RED}iree-import-onnx failed:{Rst}\n{r.stderr[-800:]}")
-    r = run([os.path.join(vbin, "iree-compile"), torch, "--iree-input-type=onnx",
-             "--compile-to=input", "-o", linalg])
-    if r.returncode != 0:
-        sys.exit(f"{RED}iree-compile --compile-to=input failed:{Rst}\n{r.stderr[-800:]}")
-    return linalg
+        detail = (r.stderr or r.stdout).strip()
+        sys.exit(f"{RED}NPU detection failed:{Rst}\n{detail}")
+    fields = r.stdout.rstrip("\n").split("\t")
+    if len(fields) != 5:
+        sys.exit(f"{RED}invalid detector output: {r.stdout!r}{Rst}")
+    target, rows, cols, generation, vbnv = fields
+    if target not in ("npu1_4col", "npu4"):
+        sys.exit(f"{RED}unsupported detected target: {target}{Rst}")
+    return {
+        "target": target,
+        "rows": int(rows),
+        "cols": int(cols),
+        "generation": generation,
+        "vbnv": vbnv,
+    }
 
 
 def classify(mlir):
@@ -108,7 +149,7 @@ def pad(n):
 
 
 def emit_kernel(M, K, N):
-    """A clean bf16→f32 matmul of the (padded) shape — the only form npu1 accepts."""
+    """A clean bf16→f32 matmul of the padded, AIE-friendly shape."""
     Mp, Kp, Np = pad(M), pad(K), pad(N)
     mlir = f"""// extracted NPU kernel — bf16 matmul, original {M}x{K}x{N} padded to {Mp}x{Kp}x{Np}
 func.func @matmul(%a: tensor<{Mp}x{Kp}xbf16>, %b: tensor<{Kp}x{Np}xbf16>) -> tensor<{Mp}x{Np}xf32> {{
@@ -142,7 +183,7 @@ def extract_convs(mlir):
 
 
 def emit_conv_kernel(c):
-    """A clean conv_2d_nhwc_hwcf bf16→f32 kernel (the only conv form npu1 accepts).
+    """A clean conv_2d_nhwc_hwcf bf16→f32 kernel for amd-aie.
     Assumes stride 1, no padding (OH=H-KH+1). Batch is bumped to >=2 because the
     amd-aie conv codegen can't set a config for N=1. Returns (mlir, N)."""
     H, W, IC, OC, KH, KW = (c[k] for k in ("H", "W", "IC", "OC", "KH", "KW"))
@@ -162,15 +203,53 @@ func.func @conv(%in: tensor<{N}x{H}x{W}x{IC}xbf16>, %fil: tensor<{KH}x{KW}x{IC}x
     return mlir, N
 
 
-def compile_npu(mlir_path, vmfb_path, lower="air", tile="pack-peel"):
-    cmd = [os.path.join(IREE, "iree-compile"), mlir_path,
-           "--iree-hal-target-backends=amd-aie", "--iree-amdaie-target-device=npu1_4col",
-           f"--iree-amdaie-lower-to-aie-pipeline={lower}", f"--iree-amdaie-tile-pipeline={tile}",
-           f"--iree-amd-aie-peano-install-dir={PEANO}",
-           f"--iree-amd-aie-install-dir={os.path.join(ROOT, 'iree-install')}",
-           "--iree-amdaie-device-hal=amdxdna", "-o", vmfb_path]
-    r = run(cmd)
-    return r.returncode == 0 and os.path.exists(vmfb_path), r
+def compile_npu(mlir_path, vmfb_path, device, kernel_kind,
+                lower="air", tile="pack-peel"):
+    """Publish only a successful compile; preserve a prior good VMFB on failure."""
+    target = device["target"]
+    extra = []
+    if target == "npu4":
+        extra.extend([
+            "--iree-amdaie-enable-control-packet=true",
+            "--iree-amdaie-packet-flow-strategy=auto",
+        ])
+        if kernel_kind == "matmul":
+            # The same bf16 pipeline that run-matmul.sh verified on Strix Point.
+            lower = "objectFifo"
+            tile = "pack-peel-4-level-tiling"
+            extra.extend([
+                "--iree-amdaie-enable-ukernels=all",
+                "--iree-amd-aie-enable-chess-for-ukernel=0",
+                "--iree-amdaie-stack-size=3072",
+            ])
+    else:
+        extra.append("--iree-amdaie-packet-flow-strategy=none")
+
+    destination = Path(vmfb_path)
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory(
+            prefix=".npu-trim-compile.", dir=destination.parent) as work:
+        temporary_vmfb = os.path.join(work, destination.name)
+        cmd = [
+            os.path.join(IREE, "iree-compile"), mlir_path,
+            "--iree-hal-target-backends=amd-aie",
+            f"--iree-amdaie-target-device={target}",
+            f"--iree-amdaie-lower-to-aie-pipeline={lower}",
+            f"--iree-amdaie-tile-pipeline={tile}",
+            f"--iree-amd-aie-peano-install-dir={PEANO}",
+            f"--iree-amd-aie-install-dir={os.path.join(ROOT, 'iree-install')}",
+            "--iree-amdaie-device-hal=amdxdna",
+            "--iree-hal-memoization=false",
+            "--iree-hal-indirect-command-buffers=false",
+            *extra,
+            "-o", temporary_vmfb,
+        ]
+        r = run(cmd)
+        output = Path(temporary_vmfb)
+        success = r.returncode == 0 and output.is_file() and output.stat().st_size > 0
+        if success:
+            os.replace(output, destination)
+        return success, r
 
 
 def main():
@@ -182,10 +261,18 @@ def main():
 
     if args.model.endswith(".onnx"):
         print(f"{D}# importing {args.model} (ONNX → linalg) …{Rst}")
-        mlir_path = import_onnx(args.model)
+        mlir = import_onnx(args.model)
     else:
-        mlir_path = args.model
-    mlir = open(mlir_path, encoding="utf-8").read()
+        try:
+            mlir = Path(args.model).read_text(encoding="utf-8")
+        except OSError as exc:
+            print(f"{RED}could not read input MLIR: {exc}{Rst}", file=sys.stderr)
+            return 1
+
+    device = None if args.no_compile else detect_device()
+    if device:
+        print(f"{D}# compile target: {device['generation']} {device['vbnv']} "
+              f"({device['target']}, {device['rows']}x{device['cols']}){Rst}")
 
     print(f"\n{B}== op coverage =={Rst}")
     tiers = {"npu": (G, "✅ NPU"), "exp": (Y, "🟡 exp"), "cpu": (RED, "⛔ CPU")}
@@ -198,19 +285,22 @@ def main():
     convs = extract_convs(mlir)
     if not mms and not convs:
         print(f"\n  {D}no static-shape linalg.matmul or conv_2d found to extract.{Rst}")
-        return
+        return 0 if args.no_compile else 1
 
-    def report(line, kpath, lower, tile):
+    def report(line, kpath, kernel_kind, lower, tile):
         if args.no_compile:
             print(line)
             return 0
-        success, r = compile_npu(kpath, kpath.replace(".mlir", ".vmfb"), lower, tile)
+        stem = os.path.splitext(kpath)[0]
+        vmfb_path = f"{stem}.{device['target']}.vmfb"
+        success, r = compile_npu(
+            kpath, vmfb_path, device, kernel_kind, lower, tile)
         if success:
-            print(f"{line}\n     {G}✓ compiles to npu1{Rst}")
+            print(f"{line}\n     {G}✓ compiles to {device['target']} → {vmfb_path}{Rst}")
             return 1
         err = next((l for l in (r.stderr or "").splitlines()
                     if "error" in l.lower() and "0x" not in l), "(crashed — likely unsupported shape/dtype)")
-        print(f"{line}\n     {RED}✗ {err.strip()[:80]}{Rst}")
+        print(f"{line}\n     {RED}✗ {device['target']}: {err.strip()[:120]}{Rst}")
         return 0
 
     ok = 0
@@ -218,34 +308,36 @@ def main():
     for idx, (M, K, N, it, ot) in enumerate(mms):
         kernel, (Mp, Kp, Np) = emit_kernel(M, K, N)
         kpath = os.path.join(args.out_dir, f"matmul_{idx}_{Mp}x{Kp}x{Np}.mlir")
-        open(kpath, "w").write(kernel)
+        Path(kpath).write_text(kernel, encoding="utf-8")
         padnote = "" if (Mp, Kp, Np) == (M, K, N) else f"{D} (padded from {M}x{K}x{N}){Rst}"
         ok += report(f"  matmul[{idx}] {it}→{ot}  {Mp}x{Kp}x{Np}{padnote}  →  {kpath}",
-                     kpath, "air", "pack-peel")
+                     kpath, "matmul", "air", "pack-peel")
 
     print(f"\n{B}== extracted conv kernels ({len(convs)}) =={Rst}")
     for idx, c in enumerate(convs):
         kernel, Nk = emit_conv_kernel(c)
         kpath = os.path.join(args.out_dir,
                              f"conv_{idx}_{Nk}x{c['H']}x{c['W']}x{c['IC']}_to{c['OC']}.mlir")
-        open(kpath, "w").write(kernel)
+        Path(kpath).write_text(kernel, encoding="utf-8")
         notes = []
         if c["layout"] != "NHWC":
             notes.append(f"imported {c['layout']} — transpose to NHWC at the edges")
         if Nk != c["N"]:
-            notes.append(f"batch {c['N']}→{Nk} (npu1 conv needs N≥2; run a {Nk}-batch, keep output[0])")
+            notes.append(f"batch {c['N']}→{Nk} (amd-aie conv needs N≥2; run a {Nk}-batch, keep output[0])")
         tag = f"{D} ({'; '.join(notes)}){Rst}" if notes else ""
         ok += report(f"  conv[{idx}] {c['dtype']}  {Nk}x{c['H']}x{c['W']}x{c['IC']} * {c['KH']}x{c['KW']} → {c['OC']}ch{tag}  →  {kpath}",
-                     kpath, "objectFifo", "conv-decompose")
+                     kpath, "conv", "objectFifo", "conv-decompose")
 
     total = len(mms) + len(convs)
     if args.no_compile:
         print(f"\n{B}summary:{Rst} emitted {total} kernel(s) to {args.out_dir}/ "
-              f"(re-run without --no-compile to test-compile them on npu1).")
+              "(re-run without --no-compile to detect and test-compile for the local NPU).")
+        return 0
     else:
-        print(f"\n{B}summary:{Rst} {ok}/{total} kernels lower to the NPU; "
+        print(f"\n{B}summary:{Rst} {ok}/{total} kernels lower to {device['target']}; "
               f"wire them via tools/npu-runner, keep the ⛔ ops on CPU.")
+        return 0 if ok == total else 1
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())

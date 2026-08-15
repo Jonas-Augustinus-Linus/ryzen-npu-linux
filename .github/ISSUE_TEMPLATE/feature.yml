@@ -1,0 +1,24 @@
+name: Kernel or ecosystem proposal
+description: Propose a new op, LLM primitive, device result, example, or integration.
+title: "proposal: "
+labels: [enhancement]
+body:
+  - type: textarea
+    id: outcome
+    attributes:
+      label: User outcome
+      description: What should a Linux NPU user be able to build or run afterward?
+    validations:
+      required: true
+  - type: textarea
+    id: scope
+    attributes:
+      label: Proposed scope and verification
+      description: Name the target generation, CPU reference, shapes/dtypes, and reproducible acceptance test.
+    validations:
+      required: true
+  - type: textarea
+    id: upstream
+    attributes:
+      label: Related upstream work
+      description: Link relevant IREE, mlir-aie, LLVM-AIE, amdxdna, or model work.

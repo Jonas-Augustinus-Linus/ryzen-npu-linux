@@ -9,10 +9,10 @@ Ubuntu 26.04, kernel 7.0, 2026-06-22)에서 직접 마주치고 해결한 것들
 
 ---
 
-## 0. limits.d는 memlock `unlimited`라는데 — 터미널은 여전히 8 MB다
+## 0. limits.d는 memlock 1 GiB라는데 — 터미널은 여전히 8 MiB다
 
-**증상.** `enable-npu.sh`를 실행했고, `/etc/security/limits.d/99-xrt-npu.conf`에는
-`unlimited`라고 적혀 있고, 로그아웃 후 다시 로그인까지 했는데 — 여전히:
+**증상.** `enable-npu.sh`를 실행했고 `/etc/security/limits.d/`의 UID별 파일에는
+`1048576` KiB라고 적혀 있으며, 로그아웃 후 다시 로그인까지 했는데 — 여전히:
 
 ```
 $ ulimit -l
@@ -43,20 +43,25 @@ $ xrt-smi examine
   종료되지 **않는다** — 그래서 서비스를 고친 뒤에도 재로그인만으로는 새 제한값으로
   재시작되는 일이 결코 없다. 오직 재부팅만이 그렇게 한다.
 
-**해결책**(이제 `enable-npu.sh`가 하는 일): PAM 경로를 위해 limits.d 항목은 그대로
-두고, *거기에 더해* 유저 매니저용 드롭인을 추가한 다음, 한 번 재부팅하라:
+**해결책**(이제 `enable-npu.sh`가 하는 일): 선택한 사용자에게만 PAM 경로와
+UID별 유저 매니저 drop-in 양쪽에 유한한 1 GiB 기본값을 쓰고, 한 번 재부팅하라:
 
 ```
-# /etc/systemd/system/user@.service.d/99-xrt-npu-memlock.conf
+# /etc/systemd/system/user@1000.service.d/99-xrt-npu-memlock.conf
+# (1000은 대상 사용자의 UID)
 [Service]
-LimitMEMLOCK=infinity
+LimitMEMLOCK=1073741824
 ```
+
+스크립트는 구버전이 만든 정확한 전 사용자 `infinity` 파일만 안전하게 비활성
+백업하고, 관리자 소유 내용은 덮어쓰지 않으며 `--uninstall`을 지원한다.
+`MEMLOCK_KB`로 64 MiB–16 GiB 사이의 다른 유한 한도를 선택할 수 있다.
 
 재부팅 없이 이미 실행 중인 셸을 풀어주려면(자식 프로세스는 rlimit을
 상속받는다):
 
 ```bash
-sudo prlimit --pid $$ --memlock=unlimited:unlimited
+sudo prlimit --pid $$ --memlock=1073741824:1073741824
 ```
 
 `check-npu.sh [5]`는 이제 정확히 이 분열 — limits.d는 허용하는데 프로세스는 갖고
@@ -107,7 +112,7 @@ IREE Python(nanobind) 바인딩은 feature-test-macro 재정의를 유발하는�
 
 ---
 
-## 3. 고정된 Peano(llvm-aie) 버전이 만료되었다
+## 3. 상류 Peano 핀이 만료되었다 — 최신 nightly를 몰래 따라가지 말 것
 
 **증상**
 ```
@@ -117,13 +122,13 @@ ERROR: Could not find a version that satisfies the requirement
 `build_tools/peano_commit_linux.txt`는 특정 `llvm-aie` 나이틀리를 고정하지만,
 Xilinx 나이틀리 인덱스는 최근 빌드만 유지한다 — 고정된 버전(상류에서 약 13개월간 손대지 않음)은 이미 오래전에 사라졌다.
 
-**해결책.** 고정값을 사용 가능한 최신 나이틀리로 가리키게 한다:
-```bash
-echo "<latest-nightly-version>" > build_tools/peano_commit_linux.txt
-bash build_tools/download_peano.sh
-```
-`scripts/build.sh`는 인덱스를 질의하여 이를 자동으로 처리한다. 새 Peano는
-버전 점프에도 불구하고 잘 작동한다(AIE LLVM 백엔드이며, 인터페이스는 안정적이다).
+**해결책.** 이 저장소는 하드웨어로 검증한 Peano 버전과 커밋을
+`versions.lock`에 기록한다. `scripts/build.sh`는 상류의 추적 파일
+`build_tools/peano_commit_linux.txt`를 바꾸지 않고 정확히 그 wheel을 설치한 뒤,
+버전 메타데이터와 `clang` 커밋을 검증한다. 자산을 더는 받을 수 없으면 빌드는
+의도적으로 실패한다. 관리자가 대체 버전을 검증하고 리뷰되는 변경으로
+`versions.lock`을 갱신한 뒤 하드웨어 인수 테스트를 다시 실행해야 하며, 사용자가
+최신 nightly를 임의로 대체해서는 안 된다.
 
 ---
 

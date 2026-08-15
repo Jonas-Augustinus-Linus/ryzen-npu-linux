@@ -9,10 +9,10 @@ indépendant de la génération et mord au moment de l'*activation*, avant tout 
 
 ---
 
-## 0. limits.d dit memlock `unlimited` — votre terminal a toujours 8 Mo
+## 0. limits.d indique 1 Gio de memlock — votre terminal a toujours 8 Mio
 
-**Symptôme.** `enable-npu.sh` a été exécuté, `/etc/security/limits.d/99-xrt-npu.conf` dit
-`unlimited`, vous vous êtes déconnecté puis reconnecté — et pourtant :
+**Symptôme.** `enable-npu.sh` a été exécuté, le fichier propre à l'UID sous
+`/etc/security/limits.d/` indique `1048576` Kio, vous vous êtes déconnecté puis reconnecté — et pourtant :
 
 ```
 $ ulimit -l
@@ -44,20 +44,26 @@ n'en couvre qu'un seul :
   `user@<uid>.service` — donc même après avoir corrigé le service, une reconnexion ne le
   redémarre jamais avec la nouvelle limite. Seul un redémarrage de la machine le fait.
 
-**Correctif** (ce que fait désormais `enable-npu.sh`) : gardez l'entrée limits.d pour le
-chemin PAM *et* ajoutez un drop-in pour le gestionnaire utilisateur, puis redémarrez une fois :
+**Correctif** (ce que fait désormais `enable-npu.sh`) : fixez une valeur finie
+de 1 Gio pour l'utilisateur choisi dans le chemin PAM et dans le drop-in du
+gestionnaire propre à son UID, puis redémarrez une fois :
 
 ```
-# /etc/systemd/system/user@.service.d/99-xrt-npu-memlock.conf
+# /etc/systemd/system/user@1000.service.d/99-xrt-npu-memlock.conf
+# (1000 est l'UID de l'utilisateur cible)
 [Service]
-LimitMEMLOCK=infinity
+LimitMEMLOCK=1073741824
 ```
+
+Le script désactive prudemment l'ancien fichier générique `infinity` exact,
+n'écrase aucun contenu administrateur et prend en charge `--uninstall`.
+`MEMLOCK_KB` permet de choisir une autre limite finie de 64 Mio à 16 Gio.
 
 Pour débloquer un shell déjà en cours d'exécution sans redémarrer (les enfants héritent
 des rlimits) :
 
 ```bash
-sudo prlimit --pid $$ --memlock=unlimited:unlimited
+sudo prlimit --pid $$ --memlock=1073741824:1073741824
 ```
 
 `check-npu.sh [5]` détecte désormais exactement cette divergence — limits.d l'accorde, le
@@ -110,7 +116,7 @@ pour compiler et exécuter des matmuls — les binaires `iree-compile` / `iree-r
 
 ---
 
-## 3. La version épinglée de Peano (llvm-aie) a expiré
+## 3. Le pin Peano amont a expiré — ne suivez pas les nightlies en silence
 
 **Symptôme**
 ```
@@ -121,13 +127,14 @@ ERROR: Could not find a version that satisfies the requirement
 nightly de Xilinx ne conserve que les builds récents — l'épingle (non touchée en amont depuis
 ~13 mois) a disparu depuis longtemps.
 
-**Correctif.** Pointez l'épingle vers la nightly la plus récente disponible :
-```bash
-echo "<latest-nightly-version>" > build_tools/peano_commit_linux.txt
-bash build_tools/download_peano.sh
-```
-`scripts/build.sh` le fait automatiquement en interrogeant l'index. La version plus récente de
-Peano fonctionne très bien malgré le saut de version (c'est le backend LLVM AIE ; l'interface est stable).
+**Correctif.** Ce dépôt consigne dans `versions.lock` la version et le commit
+Peano vérifiés sur matériel. `scripts/build.sh` installe exactement ce wheel sans
+modifier le fichier suivi en amont `build_tools/peano_commit_linux.txt`, puis
+vérifie les métadonnées et le commit de `clang`. Si l'artefact n'est plus
+disponible, le build échoue volontairement. Un mainteneur doit valider un
+remplacement, mettre à jour `versions.lock` dans une modification relue et
+relancer les tests matériels ; les utilisateurs ne doivent jamais substituer
+silencieusement la nightly la plus récente.
 
 ---
 

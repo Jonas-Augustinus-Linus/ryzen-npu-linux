@@ -13,10 +13,12 @@
 # Env overrides: REPO, VENV, TARGET_DEVICE, VMFB_OUT, BENCH=1 (also benchmark)
 set -euo pipefail
 
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO="${REPO:-$HOME/src/iree-amd-aie}"
 VENV="${VENV:-$HOME/src/iree-aie-venv}"
 IREE="$REPO/iree-install/bin"
 PEANO="$REPO/llvm-aie"
+DETECT_NPU="${DETECT_NPU:-$HERE/detect-npu.sh}"
 
 TYPE="${1:-${TYPE:-i32}}"
 # Defaults differ by type; bf16 uses a larger shape on both target pipelines.
@@ -76,58 +78,14 @@ PY
   exit 2
 fi
 
-# Detect device generation and usable geometry with iree-amd-aie's own helper.
-# It compensates for Phoenix metadata's reserved fifth column and reports 4;
-# Strix reports all 8 compute columns. TARGET_DEVICE is an explicit override,
-# but this compile-and-run script still requires usable local geometry.
-ROWS=""; COLS=""; ARCH=""; VBNV=""
-HELP="$REPO/build_tools/ci/amdxdna_driver_utils/amdxdna_ioctl.py"
-if [ -f "$HELP" ]; then
-  ARCH=$(python "$HELP" --npu-device 2>/dev/null || true)
-  ROWS=$(python "$HELP" --num-rows 2>/dev/null || true)
-  COLS=$(python "$HELP" --num-cols 2>/dev/null || true)
-fi
-for sysfs_device in /sys/bus/pci/drivers/amdxdna/*:*; do
-  if [ -r "$sysfs_device/vbnv" ]; then
-    VBNV="$(<"$sysfs_device/vbnv")"
-    break
-  fi
-done
-
-if ! [[ "$ROWS" =~ ^[1-9][0-9]*$ && "$COLS" =~ ^[1-9][0-9]*$ ]]; then
-  echo "unable to discover NPU geometry with $HELP" >&2
-  echo "check that /dev/accel/accel0 is accessible and REPO points to iree-amd-aie" >&2
+# Resolve only a positively identified, verified device target. The shared
+# helper refuses to collapse later npu5/npu6 hardware into npu4 by accident.
+[ -x "$DETECT_NPU" ] || {
+  echo "NPU detector is missing or not executable: $DETECT_NPU" >&2
   exit 1
-fi
-
-if [ -n "${TARGET_DEVICE:-}" ]; then
-  TARGET="$TARGET_DEVICE"
-else
-  # The helper currently folds npu4/npu5/npu6 into "Strix". Use the raw VBNV
-  # so a future XDNA2 device is not silently compiled with Strix Point's npu4
-  # target merely because it also exposes eight columns.
-  case "$VBNV:$ROWS:$COLS" in
-    RyzenAI-npu1:4:4|NPU\ Phoenix:4:4) TARGET=npu1_4col ;;
-    RyzenAI-npu4:4:8|NPU\ Strix:4:8)   TARGET=npu4 ;;
-    *)
-      echo "unsupported NPU identity/geometry: vbnv='${VBNV:-unknown}' arch='${ARCH:-unknown}' rows=$ROWS cols=$COLS" >&2
-      echo "set TARGET_DEVICE=npu1_4col or TARGET_DEVICE=npu4 only for explicitly known-compatible hardware" >&2
-      exit 1
-      ;;
-  esac
-fi
-
-case "$TARGET" in
-  npu1_4col|npu4) ;;
-  *) echo "unsupported TARGET_DEVICE '$TARGET' (use npu1_4col or npu4)" >&2; exit 1 ;;
-esac
-case "$TARGET:$ROWS:$COLS" in
-  npu1_4col:4:4|npu4:4:8) ;;
-  *)
-    echo "target $TARGET is incompatible with discovered geometry ${ROWS}x${COLS}" >&2
-    exit 1
-    ;;
-esac
+}
+IFS=$'\t' read -r TARGET ROWS COLS GENERATION VBNV \
+  < <(IREE_AMD_AIE_ROOT="$REPO" "$DETECT_NPU" --tsv)
 
 # Keep the previously verified Phoenix lowering. The Strix choices mirror the
 # upstream CPU-comparison configurations: objectFifo for both types, and the
@@ -155,19 +113,37 @@ elif [ "$TARGET" = npu4 ]; then
   fi
 fi
 
-MLIR=$(mktemp --suffix=.mlir)
-if [ -n "${VMFB_OUT:-}" ]; then
-  VMFB="$VMFB_OUT"
-  KEEP_VMFB=1
-else
-  VMFB=$(mktemp --suffix=.vmfb)
-  KEEP_VMFB=0
-fi
+TMP_ROOT="$(cd "${TMPDIR:-/tmp}" 2>/dev/null && pwd -P)" || {
+  echo "temporary directory is unavailable: ${TMPDIR:-/tmp}" >&2
+  exit 1
+}
+WORK="$(mktemp -d "$TMP_ROOT/ryzen-npu-matmul.XXXXXX")"
+TEMP_VMFB=""
 cleanup() {
-  rm -f "$MLIR"
-  [ "$KEEP_VMFB" = 1 ] || rm -f "$VMFB"
+  [ -z "$TEMP_VMFB" ] || rm -f -- "$TEMP_VMFB"
+  if [[ "$WORK" == "$TMP_ROOT"/ryzen-npu-matmul.* ]] && [ -d "$WORK" ]; then
+    rm -rf -- "$WORK"
+  else
+    echo "refusing to remove unexpected work path: $WORK" >&2
+  fi
 }
 trap cleanup EXIT
+# IREE helpers can leave tmpRunTool-* and amdaie_pdi_fb-* directories. Keep all
+# of them inside this invocation's private directory so the same trap owns them.
+export TMPDIR="$WORK"
+
+MLIR="$WORK/matmul.mlir"
+if [ -n "${VMFB_OUT:-}" ]; then
+  VMFB_FINAL="$VMFB_OUT"
+  VMFB_DIR="$(dirname "$VMFB_FINAL")"
+  VMFB_NAME="$(basename "$VMFB_FINAL")"
+  mkdir -p "$VMFB_DIR"
+  VMFB="$(mktemp "$VMFB_DIR/.${VMFB_NAME}.XXXXXX.vmfb")"
+else
+  VMFB_FINAL=""
+  VMFB="$WORK/matmul.vmfb"
+fi
+TEMP_VMFB="$VMFB"
 
 cat > "$MLIR" <<EOF
 func.func @matmul(%a: tensor<${M}x${K}x${ETYPE}>, %b: tensor<${K}x${N}x${ETYPE}>) -> tensor<${M}x${N}x${ACC}> {
@@ -215,6 +191,10 @@ if [ "${BENCH:-0}" = "1" ]; then
     --benchmark_repetitions=5 2>&1 | grep -iE 'real_time_mean|items_per' | head -2
 fi
 
-if [ "$KEEP_VMFB" = 1 ]; then
-  echo ">> Kept compiled module: $VMFB"
+if [ -n "$VMFB_FINAL" ]; then
+  # Publish only after compilation, full CPU-reference validation, and any
+  # requested benchmark succeed. A failure never leaves a new partial VMFB at
+  # the path that an application will later trust.
+  mv -f -- "$TEMP_VMFB" "$VMFB_FINAL"
+  echo ">> Kept verified compiled module: $VMFB_FINAL"
 fi
