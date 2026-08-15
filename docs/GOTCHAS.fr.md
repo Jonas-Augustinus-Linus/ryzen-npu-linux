@@ -4,6 +4,69 @@
 
 Chaque point ci-dessous a été rencontré et résolu sur un build réel (Ryzen 7840U / XDNA1,
 Ubuntu 26.04, kernel 7.0, 2026-06-22). Ils sont ordonnés selon l'endroit où ils vous mordent.
+(Le #0 est l'exception : rencontré sur la machine Strix / XDNA2 le 2026-08-15 — il est
+indépendant de la génération et mord au moment de l'*activation*, avant tout build.)
+
+---
+
+## 0. limits.d dit memlock `unlimited` — votre terminal a toujours 8 Mo
+
+**Symptôme.** `enable-npu.sh` a été exécuté, `/etc/security/limits.d/99-xrt-npu.conf` dit
+`unlimited`, vous vous êtes déconnecté puis reconnecté — et pourtant :
+
+```
+$ ulimit -l
+8192
+$ xrt-smi examine
+[xrt-smi] ERROR: mmap(len=67108864, prot=3, flags=8209, ...) failed (err=-11):
+          Resource temporarily unavailable
+```
+
+**Pourquoi.** Le Linux de bureau possède **deux chemins de rlimit indépendants**, et limits.d
+n'en couvre qu'un seul :
+
+- `pam_limits` applique limits.d sur les **connexions PAM** : ssh, TTY, et le chef de session
+  du gestionnaire d'affichage.
+- **Les applications lancées depuis l'interface graphique ne passent jamais par PAM.** Sur un
+  bureau systemd, votre terminal est engendré par le **gestionnaire utilisateur de systemd**
+  (`user@<uid>.service`) et hérite du `LimitMEMLOCK` *de ce service* — 8 Mo par défaut, quel
+  que soit limits.d :
+
+  ```
+  $ systemctl show user@$(id -u).service -p LimitMEMLOCK
+  LimitMEMLOCK=8388608
+  $ pstree -sp $$
+  systemd(1)───systemd(…)───ptyxis(…)───bash(…)      ← no PAM in this chain
+  ```
+
+- Pire : avec le **lingering** activé (`loginctl show-user $USER -p Linger` → `yes` ; les
+  outils de conteneurs/VPN l'activent souvent), la déconnexion n'arrête **pas**
+  `user@<uid>.service` — donc même après avoir corrigé le service, une reconnexion ne le
+  redémarre jamais avec la nouvelle limite. Seul un redémarrage de la machine le fait.
+
+**Correctif** (ce que fait désormais `enable-npu.sh`) : gardez l'entrée limits.d pour le
+chemin PAM *et* ajoutez un drop-in pour le gestionnaire utilisateur, puis redémarrez une fois :
+
+```
+# /etc/systemd/system/user@.service.d/99-xrt-npu-memlock.conf
+[Service]
+LimitMEMLOCK=infinity
+```
+
+Pour débloquer un shell déjà en cours d'exécution sans redémarrer (les enfants héritent
+des rlimits) :
+
+```bash
+sudo prlimit --pid $$ --memlock=unlimited:unlimited
+```
+
+`check-npu.sh [5]` détecte désormais exactement cette divergence — limits.d l'accorde, le
+processus ne l'a pas — et affiche quel chemin a échoué, ainsi que l'état du lingering.
+
+*Un workflow ssh/TTY ne déclenche jamais ce problème (pam_limits le couvre), ce qui explique
+comment il est resté invisible pendant tout le build XDNA1. Il a fait surface la première fois
+que l'activation a été lancée depuis un terminal graphique — et il mord les deux générations
+de la même façon.*
 
 ---
 

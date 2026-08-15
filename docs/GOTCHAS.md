@@ -4,6 +4,69 @@
 
 Every item below was hit and resolved on a real build (Ryzen 7840U / XDNA1,
 Ubuntu 26.04, kernel 7.0, 2026-06-22). They are ordered by where they bite you.
+(#0 is the exception: hit on the Strix / XDNA2 machine on 2026-08-15 — it is
+generation-independent and bites at *activation* time, before any build.)
+
+---
+
+## 0. limits.d says memlock `unlimited` — your terminal still has 8 MB
+
+**Symptom.** `enable-npu.sh` ran, `/etc/security/limits.d/99-xrt-npu.conf` says
+`unlimited`, you logged out and back in — and still:
+
+```
+$ ulimit -l
+8192
+$ xrt-smi examine
+[xrt-smi] ERROR: mmap(len=67108864, prot=3, flags=8209, ...) failed (err=-11):
+          Resource temporarily unavailable
+```
+
+**Why.** Desktop Linux has **two independent rlimit paths**, and limits.d only
+covers one of them:
+
+- `pam_limits` applies limits.d on **PAM logins**: ssh, TTY, and the display
+  manager's session leader.
+- **GUI-launched apps never pass through PAM.** On a systemd desktop your
+  terminal is spawned by the **systemd user manager** (`user@<uid>.service`)
+  and inherits *that service's* `LimitMEMLOCK` — default 8 MB, regardless of
+  limits.d:
+
+  ```
+  $ systemctl show user@$(id -u).service -p LimitMEMLOCK
+  LimitMEMLOCK=8388608
+  $ pstree -sp $$
+  systemd(1)───systemd(…)───ptyxis(…)───bash(…)      ← no PAM in this chain
+  ```
+
+- Worse: with **lingering** enabled (`loginctl show-user $USER -p Linger` →
+  `yes`; container/VPN tooling often turns it on), logout does **not** stop
+  `user@<uid>.service` — so even after you fix the service, a re-login never
+  restarts it with the new limit. Only a reboot does.
+
+**Fix** (what `enable-npu.sh` now does): keep the limits.d entry for the PAM
+path *and* add a drop-in for the user manager, then reboot once:
+
+```
+# /etc/systemd/system/user@.service.d/99-xrt-npu-memlock.conf
+[Service]
+LimitMEMLOCK=infinity
+```
+
+To unblock an already-running shell without rebooting (children inherit
+rlimits):
+
+```bash
+sudo prlimit --pid $$ --memlock=unlimited:unlimited
+```
+
+`check-npu.sh [5]` now detects exactly this split — limits.d grants it, the
+process doesn't have it — and prints which path failed, plus the lingering
+status.
+
+*An ssh/TTY workflow never triggers this (pam_limits covers it), which is how
+it stayed invisible through the whole XDNA1 build. It surfaced the first time
+activation ran from a GUI terminal — and it bites both generations equally.*
 
 ---
 

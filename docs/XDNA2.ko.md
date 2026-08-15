@@ -33,7 +33,7 @@
 ## ✅ 검증됨: 오늘의 Strix Point 머신, 이 저장소의 도구 그대로
 
 XDNA2 머신에서 수정 없이 `scripts/check-npu.sh`를 실행하자 스크립트 버그
-두 개(둘 다 이 커밋에서 수정됨 — 아래 참조)와 다음의 실제 상태가 드러났다:
+세 개(모두 이 커밋에서 수정됨 — 아래 참조)와 다음의 실제 상태가 드러났다:
 
 ```
 [1] amdxdna module loaded                       ✓
@@ -52,13 +52,42 @@ XDNA2 머신에서 수정 없이 `scripts/check-npu.sh`를 실행하자 스크�
    `libxrt-npu2`, `libxrt-utils-npu`, `python3-xrt`(2.21.75)가 아카이브에서
    곧바로 설치된다 — XDNA1에도 같은 패키지가 존재하지만 출시된 어떤 런타임도
    모델을 실행해주지 않는 반면, XDNA2에서는 이것이 동작하는 런타임 경로다.
-2. **활성화를 가로막는 요인은 XDNA1과 한 바이트도 다르지 않다.** 8 MB
-   memlock 기본값이 xrt-smi의 64 MB `mmap(MAP_LOCKED)`를 `EAGAIN`으로 깨뜨린다 —
-   정확히 `scripts/enable-npu.sh`가 겨냥해 작성된 그 실패다. 이는 XDNA2에
-   **수정 없이 그대로** 적용된다(그리고 Ubuntu 26.04에서는 패키지 설치 단계가
-   이미 끝나 있다).
+2. **활성화를 가로막는 요인은 XDNA1과 한 바이트도 다르지 않다** — 8 MB
+   memlock 기본값이 xrt-smi의 64 MB `mmap(MAP_LOCKED)`를 `EAGAIN`으로 깨뜨리며,
+   정확히 `scripts/enable-npu.sh`가 겨냥해 작성된 그 실패다 — **다만 예전
+   수정법은 systemd 데스크톱에서는 소리 없이 적용되지 않는다.** limits.d는
+   `pam_limits` 메커니즘이다; GUI 터미널은 `user@<uid>.service`의 자식이라
+   대신 *그 서비스의* 8 MB `LimitMEMLOCK`을 물려받고, lingering이 켜져 있으면
+   재로그인을 해도 그 서비스는 결코 재시작되지 않는다. 이제 `enable-npu.sh`는
+   `user@.service` drop-in도 함께 쓰고 호출한 셸에 `prlimit`을 건다 — 전체
+   해부는 [GOTCHAS #0](GOTCHAS.ko.md)에 있다.
 3. **펌웨어는 출고 상태 그대로 최신이다**: FW 1.1.2.64가
    `amdnpu/17f0_10/`에서 로드되었다 — FastFlowLM이 요구하는 ≥ 1.1.0.0 하한선을 넘는다.
+
+### ✅ 최종 상태: XDNA2 NPU가 enumerate 된다 (같은 머신, 같은 날)
+
+memlock 수정이 진짜로 자리 잡은 뒤(drop-in + `prlimit`, gotcha #0), 일곱 개
+검사가 모두 초록불이 되고 유저스페이스 스택이 디바이스를 연다:
+
+```
+$ xrt-smi examine
+XRT
+  Version              : 2.21.75
+  amdxdna Version      : 7.0.0-29-generic
+  NPU Firmware Version : 1.1.2.64
+Device(s) Present
+|BDF             |Name          |
+|[0000:66:00.1]  |RyzenAI-npu4  |
+
+$ python3 -c 'import pyxrt; d = pyxrt.device(0); \
+    print(d.get_info(pyxrt.xrt_info_device.name))'
+RyzenAI-npu4
+```
+
+`RyzenAI-npu4`는 아래 이름 해독표의 해당 행을 실제 하드웨어에서 확인해준다:
+XRT에게 Strix Point는 `npu4`다. *여기까지* 오는 데 소스 빌드는 필요 없었다 —
+XDNA2/Ubuntu 26.04에서 활성화는 컴파일이 아니라 설정의 문제다. 다음 단계는
+연산이다(*다음으로 갈 곳* 참조).
 
 ### XDNA1 도구를 XDNA2에 들이대자 드러난 스크립트 버그 (수정됨)
 
@@ -69,13 +98,19 @@ XDNA2 머신에서 수정 없이 `scripts/check-npu.sh`를 실행하자 스크�
 - `check-npu.sh [2]`는 XDNA1의 lspci 문자열인 `IPU|AI`를 매칭했다. XDNA2는
   `Neural Processing Unit`(디바이스 `17f0`)으로 enumerate 된다. 이제 검사 항목은
   둘 다 매칭하고 어느 세대를 발견했는지 보고한다.
+- `check-npu.sh [6]`은 [1]과 *같은* SIGPIPE 경쟁을 안고 있었다 — `pipefail`
+  아래의 `xrt-smi examine | grep -q` — 다만 이쪽은 **NPU가 실제로 enumerate 되고
+  나서야** 발동한다(매칭되는 줄이 성공한 리포트의 앞쪽에 있어서, `xrt-smi`가
+  아직 출력을 쓰는 동안 `grep -q`가 먼저 빠져나간다). 이 검사 항목은 사상 첫
+  성공적인 enumeration을 실패로 보고했고, 그 와중에 [7]의 `pyxrt`는 태연히
+  디바이스를 열었다. 이제는 출력을 먼저 담아둔 뒤에 매칭한다.
 
 ## 🔎 이름 해독표 (세대 간 혼동의 1순위)
 
 | 레이어 | XDNA1 | XDNA2 Strix Point | 출처 |
 |---|---|---|---|
 | lspci | `AMD IPU Device` (`1502`) | `Neural Processing Unit` (`17f0`) | ✅ 두 머신 모두 |
-| XRT / xdna-driver | `RyzenAI-npu1` | `RyzenAI-npu4` (Halo=`npu5`, Krackan=`npu6`) | [xdna-driver](https://github.com/amd/xdna-driver) |
+| XRT / xdna-driver | `RyzenAI-npu1` | `RyzenAI-npu4` (Halo=`npu5`, Krackan=`npu6`) | ✅ 이 머신이 `RyzenAI-npu4`를 보고함 · [xdna-driver](https://github.com/amd/xdna-driver) |
 | mlir-aie / IRON | `npu1` | `npu2` | [mlir-aie](https://xilinx.github.io/mlir-aie/) |
 | iree-amd-aie | `npu1_4col` | `npu4` | [iree-amd-aie](https://github.com/nod-ai/iree-amd-aie) |
 | ISA | AIE2 | AIE2P | [Peano](https://github.com/Xilinx/llvm-aie) |
@@ -102,8 +137,8 @@ XDNA2 머신에서 수정 없이 `scripts/check-npu.sh`를 실행하자 스크�
 
 | 자산 | XDNA2 상태 | 달라지는 것 |
 |---|---|---|
-| `scripts/check-npu.sh` | ✅ 동작함 (이 커밋) | XDNA2 PCI 문자열 + 세대 보고 추가됨 |
-| `scripts/enable-npu.sh` | ✅ **수정 없이** 동작함 | 동일한 3가지 차단 요인; Ubuntu 26.04가 패키지를 미리 설치해 둔다 |
+| `scripts/check-npu.sh` | ✅ 동작함 (이 커밋) | XDNA2 PCI 문자열 + 세대 보고; [6] 성공 쪽 SIGPIPE 수정; [5]는 이제 pam 대 systemd memlock 분리를 진단한다 |
+| `scripts/enable-npu.sh` | ✅ 동작함 (이 커밋에서 확장됨) | 동일한 3가지 차단 요인; Ubuntu 26.04가 패키지를 미리 설치해 둔다 — 다만 systemd 데스크톱에서는 memlock 수정에 limits.d 위에 `user@.service` drop-in이 추가로 필요하다 ([gotcha #0](GOTCHAS.ko.md)) |
 | `scripts/build.sh` (iree-amd-aie) | 🔎 이식될 것 | `npu4`는 지원되는 타깃이다; 프로젝트는 활발하다(Peano npu4용 softmax ukernel, ERT_CMD_CHAIN 배칭). 커밋 동기화(commit-lockstep) gotcha(고정된 xdna-driver)는 남아 있다 |
 | `scripts/run-matmul.sh` | 🔎 이식될 것 | 타깃 `npu1_4col` → `npu4`; `amdxdna` HAL 플래그는 그대로다 |
 | `tools/npu-runner` | 🔎 이식될 것 | IREE C API는 변경 없음 — npu4 빌드에 맞춰 재컴파일 |
@@ -156,5 +191,7 @@ XDNA2 머신에서 수정 없이 `scripts/check-npu.sh`를 실행하자 스크�
    ([#21725](https://github.com/ggml-org/llama.cpp/issues/21725))이
    메인테이너 눈에 띄는 착륙 지점으로 존재한다.
 
-*상태: 2026-08-15에 페이지 추가. ✅ 항목들은 그날 위의 Strix Point 머신에서
-재현되었고, 🔎 항목들은 출처를 인라인으로 달고 있다.*
+*상태: 2026-08-15에 페이지 추가; 같은 날 위의 Strix Point 머신에서 활성화를
+완료하고 검증했다 — [gotcha #0](GOTCHAS.ko.md)을 수정한 뒤의 `xrt-smi`
+enumeration과 `RyzenAI-npu4`의 `pyxrt` 디바이스 열기. 🔎 항목들은 출처를
+인라인으로 달고 있다.*

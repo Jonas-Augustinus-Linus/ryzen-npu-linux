@@ -4,6 +4,68 @@
 
 以下の各項目は、すべて実機のビルド（Ryzen 7840U / XDNA1、
 Ubuntu 26.04、kernel 7.0、2026-06-22）で実際に遭遇し、解決したものです。発生順（どこでつまずくか）に並べてあります。
+（#0 だけは例外です: 2026-08-15 に Strix / XDNA2 マシンで遭遇したもので、世代に依存せず、
+あらゆるビルドより前の *アクティベーション* 時点でつまずきます。）
+
+---
+
+## 0. limits.d は memlock `unlimited` と言っている — それでもターミナルは 8 MB のまま
+
+**症状。** `enable-npu.sh` は実行済み、`/etc/security/limits.d/99-xrt-npu.conf` には
+`unlimited` と書かれており、ログアウトして再ログインもした — それでもなお:
+
+```
+$ ulimit -l
+8192
+$ xrt-smi examine
+[xrt-smi] ERROR: mmap(len=67108864, prot=3, flags=8209, ...) failed (err=-11):
+          Resource temporarily unavailable
+```
+
+**理由。** デスクトップ Linux には **2 つの独立した rlimit 経路** があり、limits.d は
+そのうち片方しかカバーしません:
+
+- `pam_limits` が limits.d を適用するのは **PAM ログイン** です: ssh、TTY、そして
+  ディスプレイマネージャのセッションリーダー。
+- **GUI から起動したアプリは PAM を一切通りません。** systemd デスクトップでは、
+  ターミナルは **systemd ユーザーマネージャ**（`user@<uid>.service`）から spawn され、
+  *そのサービスの* `LimitMEMLOCK` を継承します — limits.d が何と言おうと、
+  デフォルトは 8 MB です:
+
+  ```
+  $ systemctl show user@$(id -u).service -p LimitMEMLOCK
+  LimitMEMLOCK=8388608
+  $ pstree -sp $$
+  systemd(1)───systemd(…)───ptyxis(…)───bash(…)      ← no PAM in this chain
+  ```
+
+- さらに悪いことに: **lingering** が有効だと（`loginctl show-user $USER -p Linger` →
+  `yes`。コンテナ/VPN ツールがこれをオンにしていることはよくあります）、ログアウトしても
+  `user@<uid>.service` は **停止しません** — つまりサービス側を修正しても、再ログインで
+  新しいリミットとともに再起動されることは決してありません。リブートだけがそれを行います。
+
+**修正方法**（現在の `enable-npu.sh` が行うこと）: PAM 経路のために limits.d のエントリを
+残しつつ、*さらに* ユーザーマネージャ用の drop-in を追加して、一度リブートします:
+
+```
+# /etc/systemd/system/user@.service.d/99-xrt-npu-memlock.conf
+[Service]
+LimitMEMLOCK=infinity
+```
+
+リブートせずに、すでに実行中のシェルのブロックを解除するには（子プロセスは rlimit を
+継承します）:
+
+```bash
+sudo prlimit --pid $$ --memlock=unlimited:unlimited
+```
+
+`check-npu.sh [5]` は現在、まさにこの分裂 — limits.d は許可しているのに、プロセスは
+持っていない — を検出し、どちらの経路が失敗したかを、lingering の状態とあわせて表示します。
+
+*ssh/TTY のワークフローではこれは決して発生しません（pam_limits がカバーします）。
+だからこそ XDNA1 ビルドの全期間を通して見えないままでいられたのです。GUI ターミナルから
+アクティベーションを実行した最初の一回で表面化しました — そして両世代に等しく牙をむきます。*
 
 ---
 

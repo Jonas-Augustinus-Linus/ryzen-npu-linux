@@ -4,6 +4,69 @@
 
 Jeder der folgenden Punkte ist bei einem echten Build aufgetreten und wurde dort gelöst (Ryzen 7840U / XDNA1,
 Ubuntu 26.04, Kernel 7.0, 2026-06-22). Sie sind danach geordnet, wo sie dich beißen.
+(#0 ist die Ausnahme: aufgetreten auf der Strix-/XDNA2-Maschine am 2026-08-15 — er ist
+generationsunabhängig und beißt beim *Aktivieren*, vor jedem Build.)
+
+---
+
+## 0. limits.d sagt memlock `unlimited` — dein Terminal hat trotzdem 8 MB
+
+**Symptom.** `enable-npu.sh` ist gelaufen, `/etc/security/limits.d/99-xrt-npu.conf` sagt
+`unlimited`, du hast dich ab- und wieder angemeldet — und trotzdem:
+
+```
+$ ulimit -l
+8192
+$ xrt-smi examine
+[xrt-smi] ERROR: mmap(len=67108864, prot=3, flags=8209, ...) failed (err=-11):
+          Resource temporarily unavailable
+```
+
+**Warum.** Desktop-Linux hat **zwei unabhängige rlimit-Pfade**, und limits.d deckt nur
+einen davon ab:
+
+- `pam_limits` wendet limits.d bei **PAM-Logins** an: ssh, TTY und der Session-Leader
+  des Display-Managers.
+- **GUI-gestartete Apps durchlaufen PAM nie.** Auf einem systemd-Desktop wird dein
+  Terminal vom **systemd User-Manager** (`user@<uid>.service`) gespawnt
+  und erbt das `LimitMEMLOCK` *dieses Service* — Standard 8 MB, unabhängig von
+  limits.d:
+
+  ```
+  $ systemctl show user@$(id -u).service -p LimitMEMLOCK
+  LimitMEMLOCK=8388608
+  $ pstree -sp $$
+  systemd(1)───systemd(…)───ptyxis(…)───bash(…)      ← no PAM in this chain
+  ```
+
+- Schlimmer noch: mit aktiviertem **Lingering** (`loginctl show-user $USER -p Linger` →
+  `yes`; Container-/VPN-Tooling schaltet es oft ein) stoppt ein Logout
+  `user@<uid>.service` **nicht** — selbst nachdem du den Service repariert hast, startet
+  ein erneutes Anmelden ihn also nie mit dem neuen Limit neu. Das schafft nur ein Reboot.
+
+**Fix** (was `enable-npu.sh` jetzt macht): den limits.d-Eintrag für den PAM-Pfad
+behalten *und* ein Drop-in für den User-Manager hinzufügen, dann einmal rebooten:
+
+```
+# /etc/systemd/system/user@.service.d/99-xrt-npu-memlock.conf
+[Service]
+LimitMEMLOCK=infinity
+```
+
+Um eine bereits laufende Shell ohne Reboot zu entsperren (Kindprozesse erben
+rlimits):
+
+```bash
+sudo prlimit --pid $$ --memlock=unlimited:unlimited
+```
+
+`check-npu.sh [5]` erkennt jetzt genau diese Diskrepanz — limits.d gewährt es, der
+Prozess hat es nicht — und gibt aus, welcher Pfad fehlgeschlagen ist, plus den
+Lingering-Status.
+
+*Ein ssh-/TTY-Workflow löst das nie aus (pam_limits deckt ihn ab) — deshalb blieb es
+durch den gesamten XDNA1-Build hindurch unsichtbar. Es tauchte auf, als die Aktivierung
+zum ersten Mal aus einem GUI-Terminal lief — und es beißt beide Generationen gleichermaßen.*
 
 ---
 
@@ -147,7 +210,7 @@ das Modul 4 erwartet → Mismatch → Hänger.
 # mlir-aie-(IRON-)Track — separate Stolpersteine
 
 Der zweite Weg — [`Xilinx/mlir-aie`](https://github.com/Xilinx/mlir-aie) via das
-`mlir_aie`-Wheel (siehe [MLIR-AIE.md](MLIR-AIE.md)) — hat seine eigenen Fallen, verschieden
+`mlir_aie`-Wheel (siehe [MLIR-AIE.de.md](MLIR-AIE.de.md)) — hat seine eigenen Fallen, verschieden
 vom obigen iree-amd-aie-Build. `scripts/setup-mlir-aie.sh` und
 `scripts/mlir-aie-env.sh` erledigen all diese; das ist es, was sie umschiffen.
 

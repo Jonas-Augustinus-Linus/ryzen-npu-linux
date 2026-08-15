@@ -88,7 +88,8 @@ git clone https://github.com/<you>/ryzen-npu-linux.git && cd ryzen-npu-linux
 # 0. Is the NPU even alive? (read-only diagnostic)
 ./scripts/check-npu.sh
 
-# 1. (if check failed on groups/memlock/xrt) activate it for your user, then re-login
+# 1. (if check failed on groups/memlock/xrt) activate it for your user, then reboot once
+#    (why a re-login is not enough on a systemd desktop: docs/GOTCHAS.md #0)
 ./scripts/enable-npu.sh
 
 # 2. Build iree-amd-aie from source (~65 min, 30-60 GB disk). All workarounds baked in.

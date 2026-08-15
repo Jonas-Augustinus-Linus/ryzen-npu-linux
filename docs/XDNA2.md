@@ -32,8 +32,8 @@ longer the frontier on XDNA2; **open, quantized, tuned kernels are**.
 
 ## ✅ Verified: a Strix Point machine today, using this repo's own tools
 
-Running unmodified `scripts/check-npu.sh` on the XDNA2 box surfaced two
-script bugs (both fixed in this commit — see below) and this true state:
+Running unmodified `scripts/check-npu.sh` on the XDNA2 box surfaced three
+script bugs (all fixed in this commit — see below) and this true state:
 
 ```
 [1] amdxdna module loaded                       ✓
@@ -52,12 +52,42 @@ Three findings worth writing home about:
    `libxrt-npu2`, `libxrt-utils-npu`, `python3-xrt` (2.21.75) install straight
    from the archive — on XDNA1 the same packages exist but no shipped runtime
    executes models; on XDNA2 this is a working runtime path.
-2. **The activation blockers are byte-for-byte identical to XDNA1.** The 8 MB
-   memlock default breaks xrt-smi's 64 MB `mmap(MAP_LOCKED)` with `EAGAIN` —
-   exactly the failure `scripts/enable-npu.sh` was written for. It applies to
-   XDNA2 **unchanged** (and on Ubuntu 26.04 its package step is already done).
+2. **The activation blockers are byte-for-byte identical to XDNA1** — the 8 MB
+   memlock default breaks xrt-smi's 64 MB `mmap(MAP_LOCKED)` with `EAGAIN`,
+   exactly the failure `scripts/enable-npu.sh` was written for — **but the old
+   fix silently does not apply on a systemd desktop.** limits.d is a
+   `pam_limits` mechanism; a GUI terminal is a child of `user@<uid>.service`
+   and inherits *its* 8 MB `LimitMEMLOCK` instead, and with lingering enabled
+   even a re-login never restarts that service. `enable-npu.sh` now also
+   writes a `user@.service` drop-in and `prlimit`s the invoking shell — the
+   full anatomy is [GOTCHAS #0](GOTCHAS.md).
 3. **Firmware is current out of the box**: FW 1.1.2.64 loaded from
    `amdnpu/17f0_10/` — above the ≥ 1.1.0.0 floor that FastFlowLM requires.
+
+### ✅ End state: the XDNA2 NPU enumerates (same machine, same day)
+
+After the memlock fix landed for real (drop-in + `prlimit`, gotcha #0), all
+seven checks go green and the userspace stack opens the device:
+
+```
+$ xrt-smi examine
+XRT
+  Version              : 2.21.75
+  amdxdna Version      : 7.0.0-29-generic
+  NPU Firmware Version : 1.1.2.64
+Device(s) Present
+|BDF             |Name          |
+|[0000:66:00.1]  |RyzenAI-npu4  |
+
+$ python3 -c 'import pyxrt; d = pyxrt.device(0); \
+    print(d.get_info(pyxrt.xrt_info_device.name))'
+RyzenAI-npu4
+```
+
+`RyzenAI-npu4` confirms the naming-decoder row below on real hardware: Strix
+Point is `npu4` to XRT. No source build was needed to get *here* — activation
+on XDNA2/Ubuntu 26.04 is configuration, not compilation. Compute is the next
+step (see *Where this goes next*).
 
 ### Script bugs found by pointing the XDNA1 tools at XDNA2 (fixed)
 
@@ -68,13 +98,19 @@ Three findings worth writing home about:
 - `check-npu.sh [2]` matched `IPU|AI`, the XDNA1 lspci string. XDNA2 enumerates
   as `Neural Processing Unit` (device `17f0`). The check now matches both and
   reports which generation it found.
+- `check-npu.sh [6]` had the *same* SIGPIPE race as [1] — `xrt-smi examine |
+  grep -q` under `pipefail` — but this one only arms **once the NPU actually
+  enumerates** (the matched lines sit early in a successful report, so `grep
+  -q` bails while `xrt-smi` is still writing). The check reported the first
+  ever successful enumeration as a failure while `pyxrt` in [7] happily opened
+  the device. Now captures output first, then matches.
 
 ## 🔎 The naming decoder (the #1 cross-generation confusion)
 
 | Layer | XDNA1 | XDNA2 Strix Point | Source |
 |---|---|---|---|
 | lspci | `AMD IPU Device` (`1502`) | `Neural Processing Unit` (`17f0`) | ✅ both machines |
-| XRT / xdna-driver | `RyzenAI-npu1` | `RyzenAI-npu4` (Halo=`npu5`, Krackan=`npu6`) | [xdna-driver](https://github.com/amd/xdna-driver) |
+| XRT / xdna-driver | `RyzenAI-npu1` | `RyzenAI-npu4` (Halo=`npu5`, Krackan=`npu6`) | ✅ this machine reports `RyzenAI-npu4` · [xdna-driver](https://github.com/amd/xdna-driver) |
 | mlir-aie / IRON | `npu1` | `npu2` | [mlir-aie](https://xilinx.github.io/mlir-aie/) |
 | iree-amd-aie | `npu1_4col` | `npu4` | [iree-amd-aie](https://github.com/nod-ai/iree-amd-aie) |
 | ISA | AIE2 | AIE2P | [Peano](https://github.com/Xilinx/llvm-aie) |
@@ -101,8 +137,8 @@ Three findings worth writing home about:
 
 | Asset | XDNA2 status | What changes |
 |---|---|---|
-| `scripts/check-npu.sh` | ✅ works (this commit) | XDNA2 PCI string + generation report added |
-| `scripts/enable-npu.sh` | ✅ works **unchanged** | same 3 blockers; Ubuntu 26.04 pre-installs the packages |
+| `scripts/check-npu.sh` | ✅ works (this commit) | XDNA2 PCI string + generation report; [6] success-side SIGPIPE fix; [5] now diagnoses the pam-vs-systemd memlock split |
+| `scripts/enable-npu.sh` | ✅ works (extended in this commit) | same 3 blockers; Ubuntu 26.04 pre-installs the packages — but on a systemd desktop the memlock fix needs a `user@.service` drop-in on top of limits.d ([gotcha #0](GOTCHAS.md)) |
 | `scripts/build.sh` (iree-amd-aie) | 🔎 should port | `npu4` is a supported target; project active (softmax ukernel for Peano npu4, ERT_CMD_CHAIN batching). The commit-lockstep gotcha (pinned xdna-driver) remains |
 | `scripts/run-matmul.sh` | 🔎 should port | target `npu1_4col` → `npu4`; the `amdxdna` HAL flags stay |
 | `tools/npu-runner` | 🔎 should port | IREE C API unchanged — recompile against the npu4 build |
@@ -155,5 +191,7 @@ Three findings worth writing home about:
    ([#21725](https://github.com/ggml-org/llama.cpp/issues/21725)) as a
    maintainer-visible landing zone.
 
-*Status: page added 2026-08-15. The ✅ items were reproduced that day on the
-Strix Point machine above; the 🔎 items carry their sources inline.*
+*Status: page added 2026-08-15; activation completed and verified the same day
+on the Strix Point machine above — `xrt-smi` enumeration and a `pyxrt` device
+open of `RyzenAI-npu4`, after fixing [gotcha #0](GOTCHAS.md). The 🔎 items
+carry their sources inline.*

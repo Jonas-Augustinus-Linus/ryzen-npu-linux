@@ -33,7 +33,7 @@ XDNA2 ではもはや最前線ではないという事実だ。**最前線は、
 ## ✅ 検証済み: 今日の Strix Point マシンを、このリポジトリ自身のツールで
 
 無改変の `scripts/check-npu.sh` を XDNA2 マシンで実行したところ、スクリプトのバグが
-2 件見つかり（どちらもこのコミットで修正済み — 後述）、実際の状態は次の通りだった:
+3 件見つかり（いずれもこのコミットで修正済み — 後述）、実際の状態は次の通りだった:
 
 ```
 [1] amdxdna module loaded                       ✓
@@ -52,12 +52,42 @@ XDNA2 ではもはや最前線ではないという事実だ。**最前線は、
    `libxrt-npu2`、`libxrt-utils-npu`、`python3-xrt`（2.21.75）はアーカイブからそのまま
    インストールできる — XDNA1 でも同じパッケージは存在するが、モデルを実行できる出荷済み
    ランタイムは無い。XDNA2 ではこれが動作するランタイムパスになっている。
-2. **有効化を阻むブロッカーは XDNA1 と 1 バイトも違わず同じ。** memlock のデフォルト 8 MB
-   が xrt-smi の 64 MB の `mmap(MAP_LOCKED)` を `EAGAIN` で壊す —
-   まさに `scripts/enable-npu.sh` が書かれた理由となった失敗そのものだ。これは
-   XDNA2 にも**無変更で**当てはまる（そして Ubuntu 26.04 ではパッケージ導入ステップはすでに済んでいる）。
+2. **有効化を阻むブロッカーは XDNA1 と 1 バイトも違わず同じ** — memlock のデフォルト
+   8 MB が xrt-smi の 64 MB の `mmap(MAP_LOCKED)` を `EAGAIN` で壊す。まさに
+   `scripts/enable-npu.sh` が書かれた理由となった失敗そのものだ — **しかし、従来の
+   修正は systemd デスクトップでは黙って効かない。** limits.d は `pam_limits` の
+   仕組みであり、GUI ターミナルは `user@<uid>.service` の子プロセスとして *その*
+   8 MB の `LimitMEMLOCK` を代わりに継承する。しかも lingering が有効だと、
+   再ログインしてもそのサービスは二度と再起動されない。`enable-npu.sh` は現在、
+   `user@.service` の drop-in も書き込み、呼び出し元のシェルに `prlimit` を適用する —
+   完全な解剖は [GOTCHAS #0](GOTCHAS.ja.md) にある。
 3. **ファームウェアは最初から最新である**: FW 1.1.2.64 が
    `amdnpu/17f0_10/` からロードされる — FastFlowLM が要求する下限 ≥ 1.1.0.0 を上回っている。
+
+### ✅ 最終状態: XDNA2 NPU が列挙される（同じマシン、同じ日）
+
+memlock の修正が本当の意味で効いた後（drop-in + `prlimit`、落とし穴 #0）、
+7 つのチェックすべてが緑になり、ユーザースペーススタックがデバイスを開く:
+
+```
+$ xrt-smi examine
+XRT
+  Version              : 2.21.75
+  amdxdna Version      : 7.0.0-29-generic
+  NPU Firmware Version : 1.1.2.64
+Device(s) Present
+|BDF             |Name          |
+|[0000:66:00.1]  |RyzenAI-npu4  |
+
+$ python3 -c 'import pyxrt; d = pyxrt.device(0); \
+    print(d.get_info(pyxrt.xrt_info_device.name))'
+RyzenAI-npu4
+```
+
+`RyzenAI-npu4` は、下の名前解読表の該当行を実機で裏付ける: XRT にとって Strix Point
+は `npu4` である。*ここ* までたどり着くのにソースビルドは一切不要だった —
+XDNA2/Ubuntu 26.04 での有効化はコンパイルではなく設定の問題だ。次のステップは
+コンピュートである（*この先どこへ向かうか* を参照）。
 
 ### XDNA1 のツールを XDNA2 に向けて見つかったスクリプトのバグ（修正済み）
 
@@ -68,13 +98,19 @@ XDNA2 ではもはや最前線ではないという事実だ。**最前線は、
 - `check-npu.sh [2]` は XDNA1 の lspci 文字列である `IPU|AI` にマッチさせていた。XDNA2 は
   `Neural Processing Unit`（デバイス `17f0`）として列挙される。チェックは現在両方に
   マッチし、どちらの世代を見つけたかを報告する。
+- `check-npu.sh [6]` には [1] と *同じ* SIGPIPE レースがあった — `pipefail` の下での
+  `xrt-smi examine | grep -q` — ただしこちらは **NPU が実際に列挙されて初めて**
+  発火の準備が整う（成功したレポートではマッチ対象の行が先頭近くにあるため、
+  `xrt-smi` がまだ書き込んでいる最中に `grep -q` が抜けてしまう）。このチェックは
+  史上初の列挙成功を失敗として報告し、その傍らで [7] の `pyxrt` は何食わぬ顔で
+  デバイスを開いていた。現在は先に出力をキャプチャしてからマッチさせる。
 
 ## 🔎 名前の解読表（世代間の混乱ナンバーワン）
 
 | レイヤ | XDNA1 | XDNA2 Strix Point | 出典 |
 |---|---|---|---|
 | lspci | `AMD IPU Device`（`1502`） | `Neural Processing Unit`（`17f0`） | ✅ 両マシンで確認 |
-| XRT / xdna-driver | `RyzenAI-npu1` | `RyzenAI-npu4`（Halo=`npu5`、Krackan=`npu6`） | [xdna-driver](https://github.com/amd/xdna-driver) |
+| XRT / xdna-driver | `RyzenAI-npu1` | `RyzenAI-npu4`（Halo=`npu5`、Krackan=`npu6`） | ✅ このマシンが `RyzenAI-npu4` と報告 · [xdna-driver](https://github.com/amd/xdna-driver) |
 | mlir-aie / IRON | `npu1` | `npu2` | [mlir-aie](https://xilinx.github.io/mlir-aie/) |
 | iree-amd-aie | `npu1_4col` | `npu4` | [iree-amd-aie](https://github.com/nod-ai/iree-amd-aie) |
 | ISA | AIE2 | AIE2P | [Peano](https://github.com/Xilinx/llvm-aie) |
@@ -101,8 +137,8 @@ XDNA2 ではもはや最前線ではないという事実だ。**最前線は、
 
 | 資産 | XDNA2 での状態 | 何が変わるか |
 |---|---|---|
-| `scripts/check-npu.sh` | ✅ 動作する（このコミット） | XDNA2 の PCI 文字列と世代の報告を追加 |
-| `scripts/enable-npu.sh` | ✅ **無改変で**動作する | 同じ 3 つのブロッカー。Ubuntu 26.04 はパッケージをプリインストール済み |
+| `scripts/check-npu.sh` | ✅ 動作する（このコミット） | XDNA2 の PCI 文字列と世代の報告。[6] の成功側 SIGPIPE 修正。[5] は pam 対 systemd の memlock 分裂を診断するように |
+| `scripts/enable-npu.sh` | ✅ 動作する（このコミットで拡張） | 同じ 3 つのブロッカー。Ubuntu 26.04 はパッケージをプリインストール済み — ただし systemd デスクトップでは、memlock の修正に limits.d に加えて `user@.service` の drop-in が必要（[落とし穴 #0](GOTCHAS.ja.md)） |
 | `scripts/build.sh`（iree-amd-aie） | 🔎 移植できるはず | `npu4` はサポート対象ターゲット。プロジェクトは活発（Peano npu4 向け softmax ukernel、ERT_CMD_CHAIN バッチング）。コミットのロックステップという落とし穴（ピン留めされた xdna-driver）は残る |
 | `scripts/run-matmul.sh` | 🔎 移植できるはず | ターゲット `npu1_4col` → `npu4`。`amdxdna` HAL フラグはそのまま |
 | `tools/npu-runner` | 🔎 移植できるはず | IREE C API は不変 — npu4 ビルドに対して再コンパイルするだけ |
@@ -155,5 +191,7 @@ XDNA2 ではもはや最前線ではないという事実だ。**最前線は、
    （[#21725](https://github.com/ggml-org/llama.cpp/issues/21725)）が、
    メンテナから見える着地点として存在する。
 
-*ステータス: このページは 2026-08-15 に追加。✅ の項目は同日、上記の Strix Point
-マシンで再現したもの。🔎 の項目は出典を本文中に併記している。*
+*ステータス: このページは 2026-08-15 に追加。有効化は同日、上記の Strix Point
+マシンで完了・検証済み — [落とし穴 #0](GOTCHAS.ja.md) の修正後に、`xrt-smi` での列挙と
+`pyxrt` による `RyzenAI-npu4` のデバイスオープンを確認。🔎 の項目は出典を
+本文中に併記している。*

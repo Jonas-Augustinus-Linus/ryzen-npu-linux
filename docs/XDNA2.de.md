@@ -32,8 +32,8 @@ ausführen" auf XDNA2 nicht mehr die Grenze ist; **offene, quantisierte, getunte
 
 ## ✅ Verifiziert: eine Strix-Point-Maschine heute, mit den eigenen Werkzeugen dieses Repos
 
-Das unveränderte `scripts/check-npu.sh` auf der XDNA2-Maschine auszuführen förderte zwei
-Skript-Bugs zutage (beide in diesem Commit behoben — siehe unten) und diesen tatsächlichen Zustand:
+Das unveränderte `scripts/check-npu.sh` auf der XDNA2-Maschine auszuführen förderte drei
+Skript-Bugs zutage (alle in diesem Commit behoben — siehe unten) und diesen tatsächlichen Zustand:
 
 ```
 [1] amdxdna module loaded                       ✓
@@ -52,12 +52,42 @@ Drei Erkenntnisse, die sich festzuhalten lohnen:
    `libxrt-npu2`, `libxrt-utils-npu`, `python3-xrt` (2.21.75) installieren sich direkt
    aus dem Archiv — auf XDNA1 existieren dieselben Pakete, aber keine ausgelieferte
    Laufzeitumgebung führt Modelle aus; auf XDNA2 ist das ein funktionierender Runtime-Pfad.
-2. **Die Aktivierungsblocker sind Byte für Byte identisch mit XDNA1.** Der 8-MB-
-   memlock-Default bricht xrt-smis 64-MB-`mmap(MAP_LOCKED)` mit `EAGAIN` —
-   genau das Fehlschlagen, für das `scripts/enable-npu.sh` geschrieben wurde. Es gilt für
-   XDNA2 **unverändert** (und auf Ubuntu 26.04 ist sein Paketschritt bereits erledigt).
+2. **Die Aktivierungsblocker sind Byte für Byte identisch mit XDNA1** — der 8-MB-
+   memlock-Default bricht xrt-smis 64-MB-`mmap(MAP_LOCKED)` mit `EAGAIN`,
+   genau das Fehlschlagen, für das `scripts/enable-npu.sh` geschrieben wurde — **aber
+   der alte Fix greift auf einem systemd-Desktop stillschweigend nicht.** limits.d ist ein
+   `pam_limits`-Mechanismus; ein GUI-Terminal ist ein Kind von `user@<uid>.service`
+   und erbt stattdessen *dessen* 8 MB `LimitMEMLOCK`, und mit aktiviertem Lingering
+   startet selbst ein Neu-Login diesen Service nie neu. `enable-npu.sh` schreibt jetzt
+   zusätzlich ein `user@.service`-Drop-in und wendet `prlimit` auf die aufrufende
+   Shell an — die vollständige Anatomie steht in [GOTCHAS #0](GOTCHAS.de.md).
 3. **Die Firmware ist ab Werk aktuell**: FW 1.1.2.64 geladen aus
    `amdnpu/17f0_10/` — oberhalb der Untergrenze von ≥ 1.1.0.0, die FastFlowLM verlangt.
+
+### ✅ Endzustand: die XDNA2-NPU enumeriert (dieselbe Maschine, derselbe Tag)
+
+Nachdem der memlock-Fix wirklich gelandet war (Drop-in + `prlimit`, Stolperstein #0),
+werden alle sieben Prüfungen grün und der Userspace-Stack öffnet das Gerät:
+
+```
+$ xrt-smi examine
+XRT
+  Version              : 2.21.75
+  amdxdna Version      : 7.0.0-29-generic
+  NPU Firmware Version : 1.1.2.64
+Device(s) Present
+|BDF             |Name          |
+|[0000:66:00.1]  |RyzenAI-npu4  |
+
+$ python3 -c 'import pyxrt; d = pyxrt.device(0); \
+    print(d.get_info(pyxrt.xrt_info_device.name))'
+RyzenAI-npu4
+```
+
+`RyzenAI-npu4` bestätigt die Namens-Decoder-Zeile unten auf echter Hardware: Strix
+Point ist für XRT `npu4`. Um bis *hierher* zu kommen, war kein Source-Build nötig —
+Aktivierung auf XDNA2/Ubuntu 26.04 ist Konfiguration, keine Kompilierung. Compute ist
+der nächste Schritt (siehe *Wohin es als Nächstes geht*).
 
 ### Skript-Bugs, gefunden beim Richten der XDNA1-Werkzeuge auf XDNA2 (behoben)
 
@@ -68,13 +98,19 @@ Drei Erkenntnisse, die sich festzuhalten lohnen:
 - `check-npu.sh [2]` matchte `IPU|AI`, den XDNA1-lspci-String. XDNA2 enumeriert
   als `Neural Processing Unit` (Gerät `17f0`). Die Prüfung matcht jetzt beide und
   meldet, welche Generation sie gefunden hat.
+- `check-npu.sh [6]` hatte *dieselbe* SIGPIPE-Race wie [1] — `xrt-smi examine |
+  grep -q` unter `pipefail` — aber diese wird erst scharf, **sobald die NPU
+  tatsächlich enumeriert** (die gematchten Zeilen stehen früh in einem erfolgreichen
+  Bericht, also steigt `grep -q` aus, während `xrt-smi` noch schreibt). Die Prüfung
+  meldete die allererste erfolgreiche Enumeration als Fehlschlag, während `pyxrt`
+  in [7] das Gerät fröhlich öffnete. Fängt jetzt erst die Ausgabe ein und matcht dann.
 
 ## 🔎 Der Namens-Decoder (die generationsübergreifende Verwirrung Nr. 1)
 
 | Ebene | XDNA1 | XDNA2 Strix Point | Quelle |
 |---|---|---|---|
 | lspci | `AMD IPU Device` (`1502`) | `Neural Processing Unit` (`17f0`) | ✅ beide Maschinen |
-| XRT / xdna-driver | `RyzenAI-npu1` | `RyzenAI-npu4` (Halo=`npu5`, Krackan=`npu6`) | [xdna-driver](https://github.com/amd/xdna-driver) |
+| XRT / xdna-driver | `RyzenAI-npu1` | `RyzenAI-npu4` (Halo=`npu5`, Krackan=`npu6`) | ✅ diese Maschine meldet `RyzenAI-npu4` · [xdna-driver](https://github.com/amd/xdna-driver) |
 | mlir-aie / IRON | `npu1` | `npu2` | [mlir-aie](https://xilinx.github.io/mlir-aie/) |
 | iree-amd-aie | `npu1_4col` | `npu4` | [iree-amd-aie](https://github.com/nod-ai/iree-amd-aie) |
 | ISA | AIE2 | AIE2P | [Peano](https://github.com/Xilinx/llvm-aie) |
@@ -101,8 +137,8 @@ Drei Erkenntnisse, die sich festzuhalten lohnen:
 
 | Asset | XDNA2-Status | Was sich ändert |
 |---|---|---|
-| `scripts/check-npu.sh` | ✅ funktioniert (dieser Commit) | XDNA2-PCI-String + Generationsbericht ergänzt |
-| `scripts/enable-npu.sh` | ✅ funktioniert **unverändert** | dieselben 3 Blocker; Ubuntu 26.04 installiert die Pakete vor |
+| `scripts/check-npu.sh` | ✅ funktioniert (dieser Commit) | XDNA2-PCI-String + Generationsbericht; [6] SIGPIPE-Fix auf der Erfolgsseite; [5] diagnostiziert jetzt die pam-vs-systemd-Spaltung beim memlock |
+| `scripts/enable-npu.sh` | ✅ funktioniert (in diesem Commit erweitert) | dieselben 3 Blocker; Ubuntu 26.04 installiert die Pakete vor — aber auf einem systemd-Desktop braucht der memlock-Fix ein `user@.service`-Drop-in zusätzlich zu limits.d ([Stolperstein #0](GOTCHAS.de.md)) |
 | `scripts/build.sh` (iree-amd-aie) | 🔎 sollte portieren | `npu4` ist ein unterstütztes Target; Projekt aktiv (softmax-ukernel für Peano npu4, ERT_CMD_CHAIN-Batching). Der Commit-Lockstep-Stolperstein (fixierter xdna-driver) bleibt |
 | `scripts/run-matmul.sh` | 🔎 sollte portieren | Target `npu1_4col` → `npu4`; die `amdxdna`-HAL-Flags bleiben |
 | `tools/npu-runner` | 🔎 sollte portieren | IREE-C-API unverändert — gegen den npu4-Build neu kompilieren |
@@ -155,5 +191,7 @@ Drei Erkenntnisse, die sich festzuhalten lohnen:
    ([#21725](https://github.com/ggml-org/llama.cpp/issues/21725)) als
    maintainer-sichtbare Landezone.
 
-*Status: Seite hinzugefügt am 2026-08-15. Die ✅-Punkte wurden an jenem Tag auf der
-obigen Strix-Point-Maschine reproduziert; die 🔎-Punkte tragen ihre Quellen inline.*
+*Status: Seite hinzugefügt am 2026-08-15; Aktivierung am selben Tag auf der obigen
+Strix-Point-Maschine abgeschlossen und verifiziert — `xrt-smi`-Enumeration und ein
+`pyxrt`-Geräte-Open von `RyzenAI-npu4`, nach dem Beheben von
+[Stolperstein #0](GOTCHAS.de.md). Die 🔎-Punkte tragen ihre Quellen inline.*
