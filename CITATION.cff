@@ -2,8 +2,8 @@ cff-version: 1.2.0
 message: If this toolkit helps your work, please cite the repository and the upstream compiler/runtime projects it builds on.
 title: Ryzen NPU Linux — open XDNA1 and XDNA2 compute toolkit
 type: software
-version: 1.0.0
-date-released: 2026-08-15
+version: 1.1.0
+date-released: 2026-08-16
 authors:
   - name: Jonas-Augustinus-Linus
 repository-code: https://github.com/Jonas-Augustinus-Linus/ryzen-npu-linux
@@ -17,3 +17,5 @@ keywords:
   - IREE
   - MLIR-AIE
   - LLM
+  - local RAG
+  - open research

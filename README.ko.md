@@ -15,13 +15,18 @@
 소스 빌드 경로를 보존하면서, 같은 탐지 → 빌드 → 검증 → 지속형 runner 계약을
 Strix Point XDNA2(`RyzenAI-npu4`)까지 완성했다.
 
-> **이 저장소가 존재하는 이유.** 2026년에 나온 "드디어 Ryzen AI NPU가 Linux에서 동작한다"는
-> 거의 모든 글은 **XDNA2**(Strix/Krackan)에 관한 것이다. Ryzen 7040/8040 노트북(예: 7840U)에
-> 들어있는 1세대 **XDNA1** 칩은 턴키 스택들 — AMD의 Linux용 Ryzen AI Software, ONNX Runtime의
-> Vitis AI EP, Lemonade/FastFlowLM — 에서 *명시적으로 제외*되어 있다. XDNA1+Linux 환경에서 NPU는
-> 인트리(in-tree) `amdxdna` 드라이버에 의해 전원이 켜지고 enumerate 되지만, **출시된 어떤 런타임도
-> 그 위에서 모델을 실행해주지 않는다.** XDNA1을 *실제로* 타깃하는 유일하게 열린 경로는 `iree-amd-aie`이며,
-> 이는 소스에서 빌드해야 한다. 이 저장소는 그 경로를 검증하고 gotcha 하나하나까지 짚어낸 지도다.
+> **이 저장소가 존재하는 이유.** 7840U를 포함한 Ryzen 7040/8040 노트북의
+> 1세대 **XDNA1**은 드라이버에는 보이면서도 현재 Linux 턴키 제품에서는 놀고
+> 있을 수 있다. 2026-08-15 현재 AMD 공식 Linux 지원 페이지는 STX/KRK를
+> 열거하며 Phoenix는 포함하지 않는다.[^amd-linux-support] 이 제품 지원 경계가
+> 장치를 쓸모없게 만들지는 않는다. 이제 공개된 저수준 경로는 **두 개**다. 이
+> 저장소가 고정·패키징한 재현 가능한 IREE 경로 `iree-amd-aie`, 그리고 IRON
+> Python API/컴파일러 트랙을 이 저장소가 1.4.1에 고정한 직접 커널 스택
+> [`Xilinx/mlir-aie`](https://github.com/Xilinx/mlir-aie)다. 더 새로운 연산자·
+> 애플리케이션 라이브러리 [`amd/IRON`](https://github.com/amd/IRON)은
+> **MLIR-AIE 언어 바인딩 위에 구축된 별도 프로젝트**이며 `Xilinx/mlir-aie`의
+> 이름 변경이 아니다. 이 저장소는 CPU로 대조한 경로와 명시적인 근거 경계를
+> 제공할 뿐, 턴키 whole-model server를 완성했다고 주장하지 않는다.
 
 > 🆕 **XDNA2 Strix Point(`RyzenAI-npu4`) 사용자라면?** 2세대에서 지형이 뒤집혔다: Linux에서
 > 턴키 LLM 추론이 이제 존재하고(FastFlowLM/Lemonade), Ubuntu 26.04는 XRT
@@ -44,12 +49,20 @@ Strix Point XDNA2(`RyzenAI-npu4`)까지 완성했다.
 접근성 도구, 다국어 모델, 저전력 상시 서비스, 새로운 양자화 방식, 그리고 우리가
 아직 상상하지 못한 응용까지 이어지기를 바란다.
 
+**MIT 라이선스 조건에 따라 누구나 이 작업을 사용·복사·수정·포크·공개·재배포·
+재라이선스하고, 교육이나 상업적 용도로 활용할 수 있다.** 라이선스가 요구하는
+저작권 및 라이선스 고지는 유지해야 하며, 서드파티 코드와 모델 자산은 각자의
+라이선스를 따른다. 별도 허락은 필요 없고, 개선 사항을 돌려주는 것은 환영하지만
+의무가 아니다.
+
 아직 임의의 LLM이 전부 NPU에서 곧바로 실행된다고 주장하는 것은 아니다. 대신
 그 미래에 필요한 바닥을 구체적으로 완성한다. 엄격한 장치 탐지, 고정된 빌드,
 CPU 기준 정확도, 지속형 C/Python 호출, 실제 예제, 실패 경계까지 모두 공개한다.
 성공의 기준은 하나의 모델을 소유하는 것이 아니라, 더 많은 사람이 이 위에서
-자신의 것을 만들 수 있게 되는 것이다. 기술적인 다음 단계는
-[공개 LLM 로드맵](docs/LLM-ROADMAP.md)과 [기여 안내](CONTRIBUTING.md)에 적었다.
+자신의 것을 만들 수 있게 되는 것이다. [Open NPU Lab](docs/OPEN-NPU-LAB.ko.md)에서
+출발하고, 모든 주장을 1차 자료로 잇는 [연구 원장](docs/RESEARCH.md)을 살핀 뒤,
+[공개 LLM 로드맵](docs/LLM-ROADMAP.md)이나 [기여 안내](CONTRIBUTING.md)에서
+다음 목표를 골라주길 바란다.
 
 ## 🎬 데모
 
@@ -63,15 +76,16 @@ HRX 모두에서 8개 컬럼 전체로 PASS한다:
 
 ### XDNA1 / Phoenix — 기존 실기 검증 데모
 
-**엔드투엔드 — NPU에서 실행하는 ONNX MLP** (matmul은 NPU에서, `ReLU`는 CPU에서; CPU 레퍼런스와 ~0.3% 이내로 일치):
+**하이브리드 경로의 구조 — 생성된 ONNX MLP** (matmul은 NPU에서, `ReLU`는
+CPU에서 실행; 학습 앱이 아닌 생성 weight이며 CPU 레퍼런스와 ~0.3% 이내로 일치):
 
 ![onnx-mlp end-to-end demo](docs/media/onnx-mlp.gif)
 
 | | |
 |:--:|:--:|
-| diagnose → matmul → benchmark → Python, **NPU에서 실행** | 세 가지 `videotestsrc` 패턴에 NPU 2D-blur 적용 → `/dev/video10` |
+| diagnose → matmul → benchmark → Python, **NPU에서 실행** | 세 가지 `videotestsrc` 패턴에 비-AI NPU 2D box blur 적용 → `/dev/video10` |
 | ![npu-runner demo](docs/media/npu-runner.gif) | ![npu-camera demo](docs/media/npu-camera.gif) |
-| 웨이크워드 KWS — NPU에서 dense 레이어 3개 (타깃은 발화, 노이즈는 침묵 유지) | bf16은 NPU의 고유 강점 — 최대 **220 GFLOP/s** |
+| 웨이크워드 경로 — **예시용 미학습 weight**로 NPU dense 레이어 3개 | bf16은 NPU의 고유 강점 — 최대 **220 GFLOP/s** |
 | ![wake-word demo](docs/media/wake-word.gif) | ![benchmark demo](docs/media/benchmark.gif) |
 | 실제 `.onnx`를 NPU 타깃 가능한 MLIR로 가져오기 (하이브리드 임포트; 소스에서 빌드한 amd-aie 코드젠의 op 커버리지가 최전선이다) | NPU로 **실제** 컴파일되는 matmul·conv 추출 — `npu-trim`이 op를 선별하고 깔끔한 커널을 내보낸다 |
 | ![onnx-import demo](docs/media/onnx-import.gif) | ![npu-trim demo](docs/media/npu-trim.gif) |
@@ -148,11 +162,30 @@ less docs/SUPPORT.md
 | [`scripts/verify-stack.sh`](scripts/verify-stack.sh) | CLI, native/Python runner, 선택 앱/IRON을 아우르는 엄격한 실기 인수 테스트다. |
 | [`scripts/validate-repo.sh`](scripts/validate-repo.sh) | 하드웨어 없이 로컬/CI에서 실행하는 릴리스 검사다. |
 
+## 🔬 예제와 도구
+
+- [`tools/npu-trim/`](tools/npu-trim/) — 가져온 그래프를 선별하고, 감지된
+  타깃에 컴파일되는 matmul/conv만 추출한다. 임의 ONNX 런타임은 아니다.
+- [`tools/npu-runner/`](tools/npu-runner/) — VMFB를 한 번 load하고 C와
+  Python/ctypes에서 지속적으로 호출한다.
+- [`examples/local-rag-sidecar/`](examples/local-rag-sidecar/) — **실제 RAG
+  루프 안에 NPU가 들어가는 통합 예제**: CPU chunk/hash → 지속형 NPU score
+  matrix → CPU top-k → 선택적 로컬 LLM. feature는 학습된 embedding이 아니며,
+  작은 질의 하나는 CPU가 더 빠를 가능성이 크다. 현재 핀 XDNA1 실기 검증은
+  남아 있고 현재 live 근거는 XDNA2다.
+- [`examples/wake-word/`](examples/wake-word/) — 예시용 matched-filter weight로
+  지속형 NPU dense layer 세 개를 실행한다. **학습된 wake vocabulary가 아니다**.
+- [`examples/onnx-mlp/`](examples/onnx-mlp/) — **생성된** 모델의 실제 하이브리드
+  forward: NPU matmul 두 개, 명시적 CPU ReLU, CPU 기준 대조.
+- [`examples/npu-camera/`](examples/npu-camera/) — 실제 GStreamer → NPU →
+  `v4l2loopback` 배관이지만 현재 NPU 연산은 **비-AI box blur**다.
+
 ## 🧩 두 번째 경로: `mlir-aie` (IRON)
 
-`iree-amd-aie`(위)는 **그래프 전체**를 컴파일한다;
-[`Xilinx/mlir-aie`](https://github.com/Xilinx/mlir-aie)(IRON)는 더 낮은 레벨의
-경로다 — 여기서는 **NPU 커널을 직접 작성**하고 `pyxrt`로 실행하며, 실제 ML
+`iree-amd-aie`(위)는 지원되는 IREE 그래프를 컴파일한다.
+[`Xilinx/mlir-aie`](https://github.com/Xilinx/mlir-aie)는 이 저장소가 1.4.1에
+고정한 저수준 스택이다. 그 IRON Python API/컴파일러 경로에서 **NPU 커널을
+직접 작성**하고 `pyxrt`로 실행하며, 실제 ML
 `programming_examples`를 함께 제공한다. **두 세대 모두**의 실기 근거가 있지만
 같은 의존성 스냅샷으로 검증된 것은 아니다. Phoenix/`npu1` 결과는 과거 당시의
 기록이고, v1 정확 핀은 Strix/`npu2`에서 다시 검증했다(자동 감지). 현재 핀으로
@@ -161,6 +194,20 @@ less docs/SUPPORT.md
 `utils/peano-requirements.txt` 핀과 모두 일치할 때만 이를 재사용하며, 그렇지
 않으면 mlir-aie venv에 그 핀 버전 wheel을 설치한다. 전체 가이드 →
 **[docs/MLIR-AIE.ko.md](docs/MLIR-AIE.ko.md)**.
+
+[`amd/IRON`](https://github.com/amd/IRON)은 MLIR-AIE 언어 바인딩 위에 구축된
+별도의 최신 연산자·애플리케이션 라이브러리다. `Xilinx/mlir-aie`의 이름 변경이나
+새 저장소 위치가 아니다. 이 움직이는 라이브러리는 이 릴리스가 고정한 직접 커널
+트랙보다 훨씬 넓다. 정확한 커밋
+[`cdc48e93`](https://github.com/amd/IRON/tree/cdc48e93)에서 AMD 공식 Phoenix
+workflow는 **pytest case-run 2,105개 통과, 45개 건너뜀**을 보고했다. 기본
+5회 iterations를 고려하면 **서로 다른 통과 구성
+421개와 서로 다른 skip 구성 9개**다. 2,105개의 서로 다른 테스트가 아니다.
+9개 skip은 MHA 3개, streaming-SwiGLU 3개, GEMV+GELU 3개 구성이고 각각 5회
+반복됐다.[^iron-phoenix-ci] 통과한 CPU 기준 AIE2 범위에는 GEMM/GEMV, Q4NX
+역양자화, softmax, RoPE, RMSNorm/LayerNorm, activation, transpose가 포함된다.
+이는 업스트림 Phoenix 근거이지 이 저장소의 현재 핀 XDNA1 재실행이나 전체
+LLM이 아니다. GQA는 이 Phoenix run으로 입증되지 않았다.
 
 ```bash
 ./scripts/setup-mlir-aie.sh                 # mlir_aie wheel + py3.14 venv + compatible Peano
@@ -204,10 +251,12 @@ less docs/SUPPORT.md
 
 대상별 전체 가이드(게임 · AI 에이전트 · 로컬 앱)와 실현성 등급 → [docs/APPLICATIONS.ko.md](docs/APPLICATIONS.ko.md).
 
-**[docs/USE-CASES.ko.md](docs/USE-CASES.ko.md)**를 보라. 솔직히 말하면, 이것은 턴키 모델 서빙이 아니라
-**커널 레벨**(matmul/conv 빌딩 블록)이다. NPU 프로그래밍 학습, 벤치마킹, 특정 저전력 추론
-프리미티브를 만들고/오프로딩하는 것, 그리고 열린 XDNA1-on-Linux 노력에 기여하는 데에는 좋다.
-XDNA1에서 바로 꽂아 쓸 수 있는 LLM/Whisper/ONNX 런타임을 **주지는 못한다** — 그건 XDNA2 / Windows 영역이다.
+**[docs/USE-CASES.ko.md](docs/USE-CASES.ko.md)**를 보라. 하이브리드 로컬 AI
+실험실을 만들 수 있다. NPU는 반복 점수 계산·상시 단계·검증된 dense/conv 블록,
+CPU는 I/O·정책·fallback, iGPU는 필요할 때 token 생성을 맡는다.
+[local RAG sidecar](examples/local-rag-sidecar/)가 이 분할을 소스로 보여준다.
+XDNA1에서 임의 모델 전체를 처리하는 drop-in server는 여전히 없으며, 에너지
+효율도 이미 증명한 성과가 아니라 측정해야 할 목표다.
 
 ## 📚 배경
 
@@ -222,9 +271,10 @@ XDNA1 vs XDNA2, 1세대에서 Linux가 왜 어려운지, 그리고 `amdxdna` HAL
 | 계층 | 우리가 그 위에 올라타거나 곁에 두는 선행 작업 |
 |---|---|
 | 커널 드라이버 | [`amd/xdna-driver`](https://github.com/amd/xdna-driver) — `amdxdna`, Linux 6.14부터 메인라인에 포함, XDNA1을 `/dev/accel/accel0`로 enumerate 한다 |
-| 컴파일러 / 런타임 | [`nod-ai/iree-amd-aie`](https://github.com/nod-ai/iree-amd-aie), [`Xilinx/mlir-aie`](https://github.com/Xilinx/mlir-aie) (IRON), [`Xilinx/llvm-aie`](https://github.com/Xilinx/llvm-aie) (Peano), [`amd/Triton-XDNA`](https://github.com/amd/Triton-XDNA) — XDNA 세대를 타깃하는 업스트림 SDK/프레임워크 |
+| 컴파일러 / 런타임 | [`nod-ai/iree-amd-aie`](https://github.com/nod-ai/iree-amd-aie), [`Xilinx/mlir-aie`](https://github.com/Xilinx/mlir-aie) (고정된 1.4.1 IRON Python API/컴파일러 스택), [`Xilinx/llvm-aie`](https://github.com/Xilinx/llvm-aie) (Peano), [`amd/Triton-XDNA`](https://github.com/amd/Triton-XDNA) — XDNA 세대를 타깃하는 업스트림 SDK/프레임워크 |
+| 최신 연산자 / 애플리케이션 라이브러리 | [`amd/IRON`](https://github.com/amd/IRON) — MLIR-AIE 언어 바인딩 위의 별도 프로젝트이며, `Xilinx/mlir-aie`의 이름 변경이나 새 위치가 아님 |
 | 선행 XDNA1 + Linux 연산 | 연구 논문 한 편([arXiv 2504.03083](https://arxiv.org/abs/2504.03083) — IRON으로 Phoenix 7940HS에서 돌린 GPT-2), 프리미티브 전용 튜토리얼들, [Gentoo wiki XDNA 정리글](https://wiki.gentoo.org/wiki/User:Lockal/AMDXDNA) |
-| Linux용 턴키 NPU LLM | FastFlowLM · Lemonade 10.x · AMD Ryzen AI SW — **전부 XDNA2 전용이며, XDNA1을 명시적으로 제외한다** |
+| Linux용 턴키 NPU LLM | [`FastFlowLM`](https://github.com/ROCm/FastFlowLM)과 [`Lemonade`](https://github.com/lemonade-sdk/lemonade/blob/main/docs/guide/faq.md)의 NPU 경로는 XDNA2를 명시적으로 요구한다. AMD Ryzen AI Software 1.8 for Linux는 STX/KRK만 열거하며 Phoenix XDNA1은 포함하지 않는다 |
 
 따라서 "Linux 최초의 NPU", "최초의 컴파일러", "XDNA1을 최초로 구동" 같은 표현은 전부
 과장이 될 것이고 — 우리는 그렇게 주장하지 않는다.
@@ -265,8 +315,13 @@ XDNA2에서 다시 검증했다. Hawk Point 결과는 아직 없다. 현재 핀�
 
 ## 📄 라이선스
 
-**[MIT](LICENSE)** © 2026 Jonas-Augustinus-Linus — 쓰고, 포크하고, 배포하라.
+**[MIT](LICENSE)** © 2026 Jonas-Augustinus-Linus — 사용하고, 복사하고,
+수정하고, 포크하고, 공개하고, 재배포하고, 교육하고, 상업적으로 활용하라.
+라이선스가 요구하는 저작권 및 라이선스 고지는 보존해야 한다.
 
 이 저장소의 스크립트와 문서는 MIT다. 이들은 각자의 라이선스를 따르는 서드파티
 프로젝트 — IREE와 `iree-amd-aie`(Apache-2.0 WITH LLVM-exception), `Xilinx/llvm-aie`(Peano) —
 를 빌드하고 구동하며, 이 저장소는 그것들을 재배포하지 않는다.
+
+[^amd-linux-support]: AMD, [Ryzen AI Software 1.8 for Linux](https://ryzenai.docs.amd.com/en/latest/linux.html), 2026-08-15 확인.
+[^iron-phoenix-ci]: AMD IRON, [공식 Phoenix workflow run 31876069460](https://github.com/amd/IRON/actions/runs/31876069460), 커밋 `cdc48e93`.

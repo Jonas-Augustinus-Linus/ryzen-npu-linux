@@ -22,3 +22,12 @@ jobs:
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - name: Run hardware-free checks
         run: ./scripts/validate-repo.sh
+      - name: Test local RAG boundaries and endpoint policy
+        run: |
+          source ./versions.lock
+          python3 -m venv "$RUNNER_TEMP/rag-test-venv"
+          "$RUNNER_TEMP/rag-test-venv/bin/pip" install \
+            --disable-pip-version-check --only-binary=:all: \
+            "numpy==$NUMPY_VERSION"
+          "$RUNNER_TEMP/rag-test-venv/bin/python" \
+            examples/local-rag-sidecar/test_local_rag_sidecar.py

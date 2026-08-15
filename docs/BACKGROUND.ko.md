@@ -1,66 +1,97 @@
 **[🇬🇧 English](BACKGROUND.md) · [🇩🇪 Deutsch](BACKGROUND.de.md) · [🇫🇷 Français](BACKGROUND.fr.md) · [🇰🇷 한국어](BACKGROUND.ko.md) · [🇯🇵 日本語](BACKGROUND.ja.md)**
 
-# 배경: XDNA1, XDNA2, 그리고 1세대에서 Linux가 어려운 이유
+# 배경: XDNA1, XDNA2, 그리고 Linux의 두 공개 경로
 
-## 칩
+## 턴키 스택이 다음 세대로 옮겨갔다고 실리콘이 쓸모없어지는 것은 아니다
 
-AMD의 Ryzen AI NPU는 Xilinx로부터 물려받은 **AI Engine (AIE)** 공간 배열(spatial array)이다 —
-스트리밍/DMA 인터커넥트로 연결된 VLIW 벡터 타일의 격자에, 호스트와 연결하는 메모리
-및 "shim" 행이 더해진 구조다. CUDA 방식의 커널이 아니라, 타일에 연산을 배치하고
-타일 사이로 데이터를 라우팅하는(데이터플로) 방식으로 프로그래밍한다.
+AMD Ryzen AI NPU는 Xilinx에서 이어진 **AI Engine(AIE)** 공간형 어레이다.
+VLIW 벡터 타일들이 스트리밍/DMA 인터커넥트로 연결되고, 메모리 행과 shim 행이
+호스트를 잇는다. CUDA식 범용 GPU처럼 다루는 대신 타일에 연산을 배치하고 그
+사이의 데이터 흐름을 라우팅한다.[^iron-guide]
 
-여기서 중요한 두 세대는 다음과 같다:
-
-| | **XDNA1** ("Phoenix"/"Hawk Point") | **XDNA2** ("Strix" 등) |
+| | **XDNA1** (Phoenix/Hawk Point) | **XDNA2** (Strix 및 관련 장치) |
 |---|---|---|
-| 탑재 제품 | Ryzen 7040 / 8040 (예: **7840U**) | Ryzen AI 300 시리즈 |
+| 탑재 제품 | Ryzen 7040/8040, **7840U** 포함 | Ryzen AI 300 계열 |
 | 타일 아키텍처 | AIE2 (`aie2`) | AIE2P |
-| Phoenix 지오메트리 | 4 코어 행 × **사용 가능 4열**(원시 5열), `npu1_4col` | 더 큼, `npu4` |
-| PCI ID | `1022:1502` | `1022:17f0` |
-| ~성능 | ~10 TOPS | ~50 TOPS |
+| 이 저장소의 타깃 | Phoenix: 사용 가능 4열, `npu1_4col` | 검증된 Strix: `npu4` |
+| 명목 NPU 성능 | 7840U 최대 10 TOPS[^amd-7840u] | Ryzen AI 300 최대 50 TOPS[^amd-platform-guide] |
 
-## Linux 소프트웨어 상황 (2026년 중반)
+7840U 공식 사양은 여전히 최대 10 TOPS Ryzen AI 엔진을 명시한다. 현재의
+애플리케이션 소프트웨어가 Phoenix를 지원 목록에 올리지 않는다고 그 연산
+능력이 사라지는 것은 아니다.[^amd-7840u]
 
-**커널** 쪽은 해결되었다: `amdxdna` DRM accel 드라이버가 **Linux 6.14**에
-업스트림되었다(펌웨어도 포함). 최신 커널에서 NPU는 `/dev/accel/accel0`으로
-열거되며 `xrt-smi`가 이를 인식한다 — **두** 세대 **모두**에서.
+## 2026-08-15 현재 Linux 상황
 
-XDNA1이 떨어져 나가는 지점은 **유저스페이스 / 컴파일러** 쪽이다:
+커널 기반은 두 세대가 공유한다. AMD의 공개 `amdxdna` 드라이버는 지원 장치를
+Linux accelerator 인터페이스에 노출하며, AMD는 드라이버, XRT shim, 펌웨어
+요구사항과 설치 안내를 공개한다.[^amdxdna]
 
-- **AMD Ryzen AI Software for Linux** (1.7.x) — **STX/KRK (XDNA2)만** 지원.
-- **ONNX Runtime + Vitis AI EP** — Linux x86_64에서는 클라이언트-NPU 그래프 컴파일러가
-  제공되지 않으며, 연산은 CPU로 폴백된다.
-- **Lemonade / FastFlowLM** ("NPU LLMs on Linux" 프로젝트들) — **XDNA2 전용**이며,
-  7000/8000 시리즈 XDNA1은 지원하지 않는다고 명시한다.
+편리한 제품 계층의 지원 범위는 세대별로 다르다. AMD Ryzen AI Software 1.8
+for Linux 문서는 **STX와 KRK**를 열거하며 Phoenix/XDNA1은 포함하지
+않는다.[^ryzenai-linux] 이것은 현재 턴키 지원 표에 대한 설명이지, XDNA1이
+Linux에서 연산할 수 없다는 판정이 아니다.
 
-따라서 Linux에서 XDNA1은 턴키 스택 관점에서 **드라이버로는 보이지만 애플리케이션이
-없는 고아 상태**다. 예외는 — XDNA1(`npu1`, 4×5)을 *명시적으로* 대상으로 삼아 활발히
-개발되는 유일한 오픈 경로는 — IREE 플러그인인 **`nod-ai/iree-amd-aie`**다. 연구
-수준(임의의 모델이 아니라 커널 단위)이지만, 하드웨어에서 실제로 동작한다. 이 저장소가
-빌드하는 것이 바로 이것이다.
+XDNA1 실험자에게는 이제 **두 개의 공개된 저수준 경로**가 있다.
 
-## `amdxdna` HAL이 디바이스에 도달하는 방식
+1. **이 저장소가 패키징한 경로:** 정확한 버전을 고정한
+   [`nod-ai/iree-amd-aie`](https://github.com/nod-ai/iree-amd-aie) 스택이다.
+   IREE 프로그램을 lowering하고 장치별 VMFB를 만들며 `amdxdna` HAL로
+   호출한다. 여기의 스크립트는 버전 고정, 빌드, 감지, 실행, 모든 출력의 CPU
+   대조를 묶는다. 공개된 Phoenix 측정은 당시 nightly로 얻은 과거 실기
+   결과이며, 현재 v1 정확 핀은 Strix에서 재검증됐지만 Phoenix 재실행은 남아 있다.
+2. **직접 커널 경로:** Peano와 XRT를 쓰는
+   [`Xilinx/mlir-aie`](https://github.com/Xilinx/mlir-aie)다. 이 저장소는 IRON
+   Python API/컴파일러 스택을 1.4.1에 고정하며 개발자는 공간형 AIE 커널과
+   데이터 이동을 직접 작성한다. 더 새로운 연산자·애플리케이션 라이브러리
+   [`amd/IRON`](https://github.com/amd/IRON)은 MLIR-AIE 언어 바인딩 위의 별도
+   프로젝트이며 `Xilinx/mlir-aie`의 이름 변경이나 새 위치가 아니다. 그
+   업스트림 결과는 재현할 연구 단서이지 릴리스 핀이 물려받는 보증이 아니다.
 
-`iree-amd-aie`는 당신의 matmul을 다음으로 컴파일한다:
+AMD IRON 커밋
+[`cdc48e93`](https://github.com/amd/IRON/tree/cdc48e93)의 공식 Phoenix
+workflow는 **pytest case-run 2,105개 통과, 45개 건너뜀**으로 완료됐다.[^iron-phoenix-ci]
+기본 5회 iterations이므로 이는 **서로 다른 통과 구성 421개와 서로 다른 skip
+구성 9개**다. 9개 skip은 MHA 3개, streaming-SwiGLU 3개, GEMV+GELU 3개
+구성이고 각각 5회 반복됐다. AIE2/Phoenix 실기 실행의 통과 범위에는 CPU
+기준값으로 대조한 GEMM/GEMV, Q4NX 역양자화,
+softmax, RoPE, RMSNorm/LayerNorm, activation, transpose가 포함된다. 이는
+XDNA1이 유용한 ML 커널 실험실이라는 강한 업스트림 근거다. 그러나 이 저장소의
+정확한 v1 스택을 다시 실행한 결과도, XDNA1 엔드투엔드 LLM 주장도 아니다.
+MHA와 streaming-SwiGLU는 정확한 skip에 포함되며 GQA는 이 Phoenix run으로
+입증되지 않았다. 결과에는 반드시 그 경계가 따라야 한다.
 
-1. **AIE 코어 코드** — Peano(`llvm-aie`, `aie2` 타깃을 갖춘 LLVM 포크)가
-   타일별 프로그램(`core_<col>_<row>.elf`)을 컴파일한다.
-2. **구성 / 제어** — object-FIFO 또는 AIR 데이터플로 lowering, 패킷
-   라우팅, 그리고 제어 프로그램을 (`bootgen`을 통해) `.vmfb`에 패킹한다.
+## 이 저장소의 `amdxdna` HAL 경로가 장치에 도달하는 방식
 
-런타임에 **`amdxdna` HAL**(`-DIREE_EXTERNAL_HAL_DRIVERS=amdxdna`로 런타임에
-빌드됨)은 **`/dev/accel/accel0`을 직접 열고**, 벤더링된 UAPI 헤더를 사용해
-DRM ioctl(`DRM_IOCTL_AMDXDNA_GET_INFO`, 커맨드 제출, 펜스 대기)을 발행한다.
-외부 XRT `xrt_coreutil` 라이브러리를 링크하지 **않는다** — 그것은 별개의 실험적인
-`xrt` HAL이다. 이 때문에 in-tree `amdxdna.ko`가 존재할 때는 AMD의 out-of-tree
-`xdna-driver`를 빌드할 **필요가 없다**.
+`iree-amd-aie`는 지원 연산을 다음 구성으로 컴파일한다.
 
-디바이스는 동일한 ioctl을 통해 자신의 지오메트리를 보고한다. `npu1_4col`과
-`--amdxdna_n_core_cols=4`는 이 값과 일치해야 한다([GOTCHAS #6](GOTCHAS.ko.md) 참조).
+1. **AIE 코어 프로그램:** Peano(`llvm-aie`)가 해당 AIE 아키텍처용 타일별
+   코드를 컴파일한다.
+2. **구성 및 제어:** 데이터플로 lowering, 라우팅, DMA/제어 코드와 장치
+   프로그램을 `.vmfb`로 패키징한다.
+3. **호스트 호출:** IREE `amdxdna` HAL이 `/dev/accel/accel0`을 열고 커널
+   UAPI를 통해 명령을 제출한 뒤 fence를 기다린다. 이는 IRON 예제의 별도
+   XRT/`pyxrt` 호스트 경로와 다르다.
 
-## 참고 자료
+장치 geometry도 정확성 계약의 일부다. 검증된 Phoenix 매핑에서는
+`npu1_4col`과 `--amdxdna_n_core_cols=4`가 일치해야 한다. 이 저장소는 이후의
+알 수 없는 장치에 타깃을 추측해 넣지 않는다. [GOTCHAS #6](GOTCHAS.ko.md)과
+[지원 표](SUPPORT.md)를 참고하라.
 
-- AMD `xdna-driver` 및 커널 `amdxdna` 문서 (kernel.org `accel/amdxdna`)
-- `nod-ai/iree-amd-aie` (README, `build_tools/ci/`)
-- `Xilinx/llvm-aie` (Peano)
-- IREE (`iree.dev`)
+## 두 경로가 모두 중요한 이유
+
+IREE 경로는 반복 가능한 애플리케이션 통합과 지속형 C/Python 런타임을
+실용적으로 만든다. IRON 경로는 타일, FIFO, 커널, 계속 움직이는 연산자
+최전선을 드러낸다. 둘을 함께 쓰면 일반 노트북 사용자도 CPU로 대조한
+matmul에서 출발해 하이브리드 로컬 AI를 조합하고, 컴파일러나 연산자 경계를
+한 번에 하나씩 넓힐 수 있다.
+
+전체 프로젝트 지도는 [Open NPU Lab](OPEN-NPU-LAB.ko.md), 1차 자료와 주장
+범위는 [연구 원장](RESEARCH.md), 남은 작업은 [LLM 로드맵](LLM-ROADMAP.md)을
+참고하라.
+
+[^amd-7840u]: AMD, [Ryzen 7 7840U 공식 사양](https://www.amd.com/en/products/processors/laptop/ryzen/7000-series/amd-ryzen-7-7840u.html).
+[^amd-platform-guide]: AMD, [Ryzen and Radeon consumer pocket guide](https://www.amd.com/content/dam/amd/en/documents/partner-hub/ryzen/amd-consumer-pocket-guide-ryzen-radeon-july-2024.pdf), 2024년 7월.
+[^amdxdna]: AMD, [`xdna-driver`: AMD NPU용 Linux 드라이버와 XRT 인터페이스](https://github.com/amd/xdna-driver).
+[^ryzenai-linux]: AMD, [Ryzen AI Software 1.8 — Linux 시스템 요구사항과 지원 플랫폼](https://ryzenai.docs.amd.com/en/latest/linux.html), 2026-08-15 확인.
+[^iron-guide]: AMD IRON, [Programming guide](https://github.com/amd/IRON/blob/main/programming_guide/README.md).
+[^iron-phoenix-ci]: AMD IRON, [공식 Phoenix workflow run 31876069460](https://github.com/amd/IRON/actions/runs/31876069460), 커밋 `cdc48e93`.

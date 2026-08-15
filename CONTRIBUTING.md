@@ -20,6 +20,12 @@ failures tell upstream projects where the next piece of the ecosystem is needed.
 - 🛠️ **Script/doc improvements.** Make the tools more robust or portable.
 - 🌍 **Translations.** Improve or add a language (see below).
 
+The [Open NPU Lab](docs/OPEN-NPU-LAB.md) offers experiment ladders and reusable
+project ideas. The [research map](docs/RESEARCH.md) links primary sources and
+open gaps. A result does not have to be fast or successful to be valuable; it
+does need a reproducible command, a truthful evidence label, and a license that
+lets other people learn from the shared artifact.
+
 ## Reporting a hardware result (issue template)
 
 Open an issue titled `result: <chip> / <distro> / <works|fails>` and include:
@@ -38,6 +44,11 @@ Open an issue titled `result: <chip> / <distro> / <works|fails>` and include:
 ```
 
 Even a clean "worked as written on <chip>" is genuinely useful data.
+
+For broader research ideas, useful failures, compile-only probes, and
+CPU/NPU/iGPU hybrid applications, use the **Open NPU experiment** issue form.
+It deliberately records correctness, performance, and energy as separate
+evidence stages.
 
 ## Dev setup
 

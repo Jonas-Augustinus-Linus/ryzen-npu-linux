@@ -10,6 +10,11 @@
 正直にまとめたものである: このリポジトリのレシピとツールのうち何が引き継がれ、
 第2世代で何が変わり、オープンな最前線が今どこにあるのか。
 
+目的はどの世代でも同じです。個人のマシンにすでに入っている NPU を、検査可能で
+再利用可能な Linux インフラに変えます。このミッションは
+[Open NPU Lab](OPEN-NPU-LAB.md)、このページの先へ進む一次資料は
+[Research branches](RESEARCH.md) を参照してください。
+
 以下の主張は 2 種類あり、明確に分けてある:
 
 - **✅ 検証済み** — 実機の XDNA2 マシンで再現したもの:
@@ -17,6 +22,9 @@
   · in-tree `amdxdna` · NPU FW 1.1.2.64**。
 - **🔎 調査済み** — アップストリームのリポジトリ/ドキュメント/ベンチマーク（2026年8月）に
   基づくもので、リンクは本文中に併記。ここではまだ再現していない。
+
+この repo は Strix 実機の system energy をまだ測定していません。以下の energy 数値は
+すべて upstream へ明示的に帰属し、repo 自身の証拠ではありません。
 
 > **このリリースで実行可能な対応範囲は、製品群の概説より狭いです。**
 > 実機検証と自動割り当てが済んでいるのは Strix Point `RyzenAI-npu4` / IREE
@@ -28,10 +36,10 @@
 
 | | XDNA1（このリポジトリのホームグラウンド） | XDNA2 |
 |---|---|---|
-| Linux でのターンキー LLM | ❌ 皆無 — 出荷済みのどのスタックからも除外 | ✅ FastFlowLM + Lemonade 10.0（2026-03 以降） |
+| Linux でのターンキー LLM | この repo は server を出荷しない。低水準の open IREE/IRON 研究経路は残る | ✅ FastFlowLM + Lemonade |
 | XRT ユーザースペース | このリポジトリの手順でビルド/インストール | ✅ **Ubuntu 26.04 が標準で同梱**（`libxrt-npu2`） |
-| カスタムカーネル（オープンな道） | `iree-amd-aie` / `mlir-aie` をソースから | 同じスタックだがサポートは向上: IRON 1.4.x は Strix をファーストクラスとして扱う |
-| コントリビューションの在りか | *何かしら* を動かすこと自体 | オープンカーネルのギャップを埋めること（ターンキーの NPU カーネルはプロプライエタリ） |
+| カスタムカーネル（オープンな道） | repo 固定の `iree-amd-aie` と `mlir-aie`。進行中の `amd/IRON` は別 upstream 経路 | 同じ公開基盤で、Strix は第一級の `npu2`/`npu4` target |
+| コントリビューションの在りか | 有用な Phoenix block を再現し、組み合わせる | open・量子化・fused kernel とアプリ統合 |
 
 このリポジトリが教えることのすべて — XRT の配管、memlock/render グループによる有効化、
 ディスパッチオーバーヘッド、Peano、IRON でのカーネル作成 — は **そのまま引き継がれる**。
@@ -105,7 +113,7 @@ XDNA2/Ubuntu 26.04 での有効化はコンパイルではなく設定の問題�
 
 ![IREE、npu-runner、XRT、HRX による XDNA2 Strix Point 実機コンピュート検証](media/xdna2-compute.gif)
 
-IRON トラックは有効化が完了したその日のうちに動いた — `setup-mlir-aie.sh` は
+repo 固定 direct-kernel 経路は有効化が完了したその日のうちに動いた — `setup-mlir-aie.sh` は
 無改変、mlir-aie **1.4.1**（cp314 wheel）、Peano wheel、Ubuntu の `pyxrt`。
 完全な表は [MLIR-AIE.ja.md](MLIR-AIE.ja.md) に。ハイライト:
 
@@ -118,9 +126,11 @@ IRON トラックは有効化が完了したその日のうちに動いた — `
   コンパイルできる。実行には `libxrt-dev` が必要（C++ ホスト）。
 - **`ml/mobilenet` — Phoenix の 4 カラムでは `CREATE_HWCTX` に失敗する設計 — が
   8 カラムのアレイでエンドツーエンドに動作する**: 推論あたり ~176 ms。
-- LLM ブロックは `npu2` ですべてパスする: softmax、RoPE、SwiGLU、RMSNorm、
-  matmul+activation エピローグ。
-- IRON 1.4.x API に移植した我々のカスタム `relu(a+b)` カーネルは
+- repo 固定の **mlir-aie 1.4.1** 経路では、softmax、RoPE、SwiGLU、RMSNorm、
+  matmul+activation epilogue の個別 `npu2` 例が通過した。これはその例に関する
+  repo 所有の Strix 証拠であり、モデル全体の結果でも、別に進む `amd/IRON`
+  operator dashboard でもない。
+- mlir-aie 1.4.1 の IRON API に移植した我々のカスタム `relu(a+b)` カーネルは
   **8 カラムで 8.0×** にスケールする（`transform_parallel_binary`）。実効 11.2 GB/s。
 
 ### ✅ IREE: `npu4` での CPU 参照正しさ検証（別トラック）
@@ -169,10 +179,11 @@ K=1216 でパスし、K=1280 で初めて失敗した。この IREE の表はそ
 ## 🔎 状況の反転: XDNA2 にはターンキーが存在する — ただし罠がある
 
 - **FastFlowLM** は v0.9.35（2026-03-11）でネイティブ Linux サポートを出荷したが、
-  **XDNA2 専用** — XDNA1 は除外されたままであり、これがこのリポジトリのソースからの
-  道が XDNA1 唯一のルートであり続ける理由だ。FLM v1.0.0 は AMD の
+  **XDNA2 専用** — XDNA1 はこの製品から除外されたまま。この repo はそのため
+  source compiler 経路を維持し、別に進行する AMD IRON library はもう一つの open
+  Phoenix 研究面を提供する。FLM v1.0.0 は AMD の
   [ROCm GitHub org](https://github.com/ROCm/FastFlowLM) に移った（2026-08）。
-  **Lemonade 10.0** はこれを OpenAI 互換サーバとしてラップする
+  **Lemonade** はこれを OpenAI 互換サーバとしてラップする
   （[Linux ガイド](https://lemonade-server.ai/flm_npu_linux.html)）。
 - **その罠:** FLM の CLI は MIT だが、その **NPU カーネルは無償利用可の
   プロプライエタリバイナリ** だ。使うための製品であって、カーネル作成を学ぶための
@@ -193,8 +204,10 @@ K=1216 でパスし、K=1280 で初めて失敗した。この IREE の表はそ
 | `scripts/build.sh`（iree-amd-aie） | ✅ 実機検証済み | Strix でソースビルド+インストール完了。並列度の制限で実際に発生した OOM を防ぎ、最終チェックで `npu1_4col` と `npu4` の両方を必須とする。Peano 22 `4a1adefa` でテスト |
 | `scripts/run-matmul.sh` | ✅ 実機検証済み | 4×8 グリッドを検出して `npu4` を選択。XDNA1 経路を維持しつつ i32 128³ と bf16 512³ が正しくコンパイル・実行された |
 | `tools/npu-runner` | ✅ 実機検証済み | C API のグリッド自動検出で4×8を解決。ネイティブ runner と ctypes/Python 経路の両方で i32 出力 16,384 値を全て検証 |
-| `tools/npu-trim` | ✅ コンセプトは健在 | op カバレッジの最前線は動くが、アプローチは同一。これを置き換えるベンダー EP は Linux には依然として無い |
-| `mlir-aie`（IRON）トラック | ✅ **検証済み — 最有力の道**（このコミット） | IRON [1.4.1](https://github.com/Xilinx/mlir-aie/releases): Strix はファーストクラス（`npu2`）、**Peano がデフォルト**、`aiecc` は C++ バイナリに、例は lit 駆動に。我々のスクリプト + カスタムカーネルは移植済み（アノテーション API の破壊 — [GOTCHAS](GOTCHAS.ja.md)）。数値は [MLIR-AIE.ja.md](MLIR-AIE.ja.md) に。以前の調査に対する訂正: mlir-aie 1.4.1 は **オプトインの HRX Python バックエンドを実際に同梱**しており、外部から提供する `libhrx` が必要である。このリポジトリの `relu_add` の単一 Worker 版と 8 カラム版は、ここで HRX ランタイムによるディスパッチと正しさ検証の PASS を実機確認した。ただしアーティファクトの生成には既存の XRT ツールチェーンを使ったため、ビルドから実行まで完全に XRT 不要だという主張ではない。 [amd/IRON](https://github.com/amd/IRON) は依然 **wheel を一切出荷していない**（ソースインストールのみ、mlir_aie 1.3.5.dev スナップショットにピン留め） |
+| [`examples/local-rag-sidecar`](../examples/local-rag-sidecar/) | ✅ `npu4` 実機で統合検証済み | 決定的 CPU hashing → persistent NPU bf16 scoring → CPU top-k。65,536 出力を全検査。学習済み retriever ではなく統合 reference であり、小さな query 一件なら CPU の方が速い可能性が高い。 |
+| `tools/npu-trim` | ✅ コンセプトは健在 | `build.sh` が別途固定した `iree-import-onnx` を導入し、独立した matmul/conv shape を extract・test-compile する。モデル全体を再構築せず、重み、layout、未対応 glue、fallback、orchestration はアプリが所有する。 |
+| repo 固定 `mlir-aie` 経路 | ✅ **Strix 実機検証済み** | [`mlir-aie` 1.4.1](https://github.com/Xilinx/mlir-aie/releases) は Strix を `npu2` とし、Peano を既定にし、[MLIR-AIE.ja.md](MLIR-AIE.ja.md) で計測した direct-kernel 経路を提供する。optional HRX Python backend には外部 `libhrx` が必要で、repo artifact は引き続き XRT を使ったため、完全 XRT-free という主張ではない。 |
+| 進行中の `amd/IRON` operator library | 🔎 **別の upstream 実機証拠** | exact `cdc48e93` で 2026-08-15 Phoenix workflow の既定 5 iteration は **2,105 passing / 45 skipped case-run**、すなわち **421 distinct passing configuration / 9 distinct skip** を報告する。[^iron-phoenix] この moving source tree/CI と repo 固定 1.4.1 Strix 結果を混同しないこと。 |
 
 ## 🔎 カーネルを書くときに効いてくるハードウェアの差分
 
@@ -234,38 +247,53 @@ K=1216 でパスし、K=1280 で初めて失敗した。この IREE の表はそ
 - 理にかなったアーキテクチャ: **NPU で prefill + iGPU で decode のハイブリッド** —
   まさに AMD 自身の Windows スタックが仕事を分割しているやり方だ。
 
+### 世代をまたぐ研究の橋
+
+オープンな研究は repo 固定例をすでに越えていますが、baseline は分離する必要が
+あります。Rösti と Franz の Phoenix 実験は GPT-2 124M fine-tuning の GEMM を
+第一世代 NPU へ offload し、hybrid throughput/energy の著者値を公開します。
+[^phoenix-gpt2] STEEL は平均 **DATO 比 9.6× XDNA1 latency** を報告しますが、
+CPU/GPU energy の数値は別の HX 370/**XDNA2** 実験であり、XDNA1 port の値では
+ありません。[^steel] 再現し拡張すべき公開結果であり、この repo 所有の benchmark
+ではありません。
+
 ## この先どこへ向かうか
 
-1. ~~4×8 アレイ上で IRON の GEMM を再現する~~ — **✅ 完了**（mlir-aie 1.4.1、
+1. ~~4×8 array で direct `mlir-aie` GEMM を再現する~~ — repo 固定
+   mlir-aie 1.4.1 で **✅ 完了**。
    アレイ全体の GEMM が i8 で 6.65 TOPS / bf16-bfp16 で 4.64 TFLOPS、LLM ブロック、
-   フル MobileNet。[MLIR-AIE.ja.md](MLIR-AIE.ja.md)）。GQA/MHA:
-   [amd/IRON](https://github.com/amd/IRON) の op ライブラリはこれらを
-   **aie2p 専用** で持つ（head-dim は 64 のみ）— しかしソースインストールのみで、
-   mlir_aie 1.3.5.dev スナップショットにピン留めされており、量子化 op は
-   *dequant*（Q4NX/AWQ → bf16）だけだ。wheel は無く、融合 W4A16 も無い。
+   フル MobileNet。[MLIR-AIE.ja.md](MLIR-AIE.ja.md) を参照。別に exact
+   `amd/IRON` commit `cdc48e93` の Phoenix hardware workflow は既定 5 iteration で
+   **2,105 passing / 45 skipped case-run**、すなわち **421 distinct passing
+   configuration / 9 distinct skip**。pass には bf16 GEMM/GEMV、Q4NX dequant、softmax、RoPE、RMSNorm、
+   LayerNorm、activation、transpose、SwiGLU decode/prefill が含まれる。skip は正確に
+   MHA 3、streaming-SwiGLU-prefill 3、GEMV+GELU 3 configuration。各 5 回反復され、
+   三つの 15 case-run group になる。MHA/GQA dashboard は **AIE2P-only**。
+   [^iron-phoenix] XDNA1 に持ち帰る研究候補を広げる証拠だが、
+   この repo の current-pin Phoenix 再実行でも完全な LLM でもない。
 2. ~~iree-amd-aie の matmul レシピと `npu-runner` を `npu4` に移植し、
    CPU 参照の正しさを確認~~ — **✅ 完了**。ビルド、世代自動検出 matmul
    スクリプト、常駐 C API runner、Python ラッパーはすべてこの Strix
    実機で動作し、upstream ハーネスで上記の全数一致を得た。統制した
    XDNA1-vs-XDNA2 性能比較は別の今後の作業であり、この正しさ検証から
    速度に関する主張は行わない。
-3. **量子化 prefill GEMM** — コントリビューションの面であり、今や正確にマップ
-   されている: [TileFuse](https://arxiv.org/abs/2606.11357) は W4A16 のレシピを
-   *コードとともに* 公開した
+3. **量子化 prefill GEMM** — 研究面は正確に整理できた。**TileFuse は外部の
+   XDNA2 研究**であり repo runtime 結果ではない。論文は W4A16 recipe と外部 code を公開した
    （[glassescrab/mlir-aie](https://github.com/glassescrab/mlir-aie/tree/feature/update-mix-mm-int4-verification)、
    main から約 13 か月遅れのフォークで、**chess ファースト**、Peano はオプション。
    AWQ group-128、k タイル = グループサイズ、L1 の weight-stationary キャッシュで
-   タイル内に dequant を融合、Strix Point で 9 TOPS）。オープンな場所のどこにも
-   **存在しない** もの: そのカーネルの **現行 IRON 1.4.x + Peano のみ** への移植、
-   そして llama.cpp との統合のすべて。
+   タイル内に dequant を融合、Strix Point で 9 TOPS）。**2026-08-15** に引用・監査した
+   source では、その TileFuse kernel の **repo 固定 mlir-aie 1.4.1 + Peano-only**
+   への public port も、llama.cpp の public TileFuse integration も確認できなかった。
+   これは日付付きの検索結果であり、**不存在の証明ではない**。
    [#21725](https://github.com/ggml-org/llama.cpp/issues/21725) は依然オープンで
    未着手だ（作者の WIP は 2026-04 に停滞。AMD 自身の活発な取り組みは HSA/ROCr
    ランタイム上の
    [`ggml-hsa`](https://github.com/ypapadop-amd/ggml/tree/hsa-backend) —
-   Ubuntu の XRT とは別のスタックである）。加えて、アップストリームで計測済みで
-   盗む価値があるもの: #21725 で引用された IRON の実験では、**64 KB のバッファ
-   アラインメント（SMMU ページ）が decode を 10× 変えるノブ** だった。
-   **このマシンでスパイク確認済み（2026-08-15）**: TileFuse の融合
+   Ubuntu の XRT とは別のスタックである）。**64 KiB buffer alignment は、検証する
+   価値のある benchmark hypothesis に留まる。** リンクした llama.cpp #21725 には
+   裏付けとなる一次実験や raw log がないため、この repo は **10× decode を主張しない**。
+   **repo status は compile-only（2026-08-15）**: TileFuse の融合
    dequant+GEMM カーネル（`mix_int4_ATB.cc`）は **mlir-aie 1.4.1 のヘッダに
    対して Peano の `aie2p` ターゲットでクリーンにコンパイルできる**
    （`-Dbf16_bf16_ONLY`、m64/k128/n64 → `matmul_bf16_bf16`）。これはこの
@@ -273,8 +301,13 @@ K=1216 でパスし、K=1280 で初めて失敗した。この IREE の表はそ
    完了では **ない**。IRON/ObjectFifo 統合、リンク、配置、ABI 整合、ホスト側の
    重みパッキング、NPU 実行、数値検証がすべて残っている。固定済みの
    [`check-w4a16-compile.sh`](../scripts/check-w4a16-compile.sh) にソース
-   コミット、チェックサム、正確なフロントエンドフラグを記録している。
+   外部 source commit、checksum、正確な front-end flag を記録している。repo には
+   W4A16 の実機実行、正しさ、throughput、energy 結果はない。
 
-*ステータス: このページは 2026-08-15 に追加。有効化、IRON コンピュート、
+*ステータス: このページは 2026-08-15 に追加。有効化、direct-kernel compute、
 CPU 参照正しさを含む IREE `npu4` 移植を、同日上記の Strix Point 実機で
 検証済み。🔎 の項目は出典を本文中に併記している。*
+
+[^iron-phoenix]: AMD, [`IRON` commit `cdc48e93`](https://github.com/amd/IRON/tree/cdc48e93fd2c8776105780790c46ba4bca1bc40e) および [Phoenix extensive hardware workflow 31876069460](https://github.com/amd/IRON/actions/runs/31876069460)、2026-08-15。workflow 既定の 5 iteration では 2,105 passing / 45 skipped case-run が 421 distinct passing configuration / 9 distinct skip に対応する。upstream 証拠であり、repo exact-v1 XDNA1 実行ではない。
+[^phoenix-gpt2]: A. Rösti、M. Franz, [“Unlocking the AMD Neural Processing Unit for ML Training on the Client Using Bare-Metal-Programming Tools”](https://arxiv.org/abs/2504.03083), FCCM 2025。第一世代 Phoenix、hybrid GPT-2 124M fine-tuning。この repo では未再現。
+[^steel]: V. J. B. Jung et al., [“STEEL: Sparsity-Aware Fused Attention for Energy-Efficient Long-Sequence Inference on AMD's XDNA NPU”](https://arxiv.org/abs/2607.09385), IEEE COINS 2026。XDNA1 latency と XDNA2 energy の実験を分離して読むこと。

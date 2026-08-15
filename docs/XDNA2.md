@@ -10,6 +10,11 @@ hardware result here yet. For this documented XDNA1 path, from-source
 what of this repo's recipes and tools carries over, what the second generation
 changes, and where the open frontier now sits.
 
+The purpose is the same on every generation: turn an NPU already inside a
+personal machine into inspectable, reusable Linux infrastructure. Read the
+[Open NPU Lab](OPEN-NPU-LAB.md) for that mission and [Research branches](RESEARCH.md)
+for primary sources that lead beyond this page.
+
 Two kinds of claims below, clearly separated:
 
 - **✅ Verified** — reproduced on a real XDNA2 machine:
@@ -17,6 +22,9 @@ Two kinds of claims below, clearly separated:
   · in-tree `amdxdna` · NPU FW 1.1.2.64**.
 - **🔎 Researched** — sourced from upstream repos/docs/benchmarks (August 2026),
   linked inline, not yet reproduced here.
+
+This repository has not measured system energy on its Strix machine. Every
+energy figure below is explicitly attributed upstream; it is not repo evidence.
 
 > **Executable support in this release is narrower than the family overview:**
 > only Strix Point `RyzenAI-npu4` / IREE `npu4` is hardware-verified and mapped
@@ -28,10 +36,10 @@ Two kinds of claims below, clearly separated:
 
 | | XDNA1 (this repo's home turf) | XDNA2 |
 |---|---|---|
-| Turnkey LLM on Linux | ❌ none — excluded by every shipped stack | ✅ FastFlowLM + Lemonade 10.0 (since 2026-03) |
+| Turnkey LLM on Linux | No server is shipped by this repo; open lower-level IREE/IRON research paths remain | ✅ FastFlowLM + Lemonade |
 | XRT userspace | build/install per this repo | ✅ **shipped natively by Ubuntu 26.04** (`libxrt-npu2`) |
-| Custom kernels (open path) | `iree-amd-aie` / `mlir-aie` from source | same stack, better supported: IRON 1.4.x treats Strix as first-class |
-| Where contribution lives | making *anything* run | closing the open-kernel gap (the turnkey NPU kernels are proprietary) |
+| Custom kernels (open path) | repo-pinned `iree-amd-aie` plus `mlir-aie`; moving `amd/IRON` is a separate upstream path | the same public foundations, with Strix as a first-class `npu2`/`npu4` target |
+| Where contribution lives | reproducing and composing useful Phoenix blocks | open, quantized, fused kernels and application integration |
 
 Everything this repo teaches — XRT plumbing, memlock/render-group activation,
 dispatch overhead, Peano, IRON kernel authoring — **transfers**. What changes is
@@ -104,7 +112,7 @@ on XDNA2/Ubuntu 26.04 is configuration, not compilation.
 
 ![Live XDNA2 Strix Point compute verification on IREE, npu-runner, XRT, and HRX](media/xdna2-compute.gif)
 
-The IRON track ran the same day activation landed — `setup-mlir-aie.sh`
+The repo-pinned direct-kernel track ran the same day activation landed — `setup-mlir-aie.sh`
 unchanged, mlir-aie **1.4.1** (cp314 wheel), Peano wheel, Ubuntu's `pyxrt`.
 Full tables in [MLIR-AIE.md](MLIR-AIE.md); headlines:
 
@@ -117,9 +125,11 @@ Full tables in [MLIR-AIE.md](MLIR-AIE.md); headlines:
   (C++ hosts).
 - **`ml/mobilenet` — the design that fails `CREATE_HWCTX` on Phoenix's 4
   columns — runs end-to-end** on the 8-column array: ~176 ms/inference.
-- LLM blocks all pass on `npu2`: softmax, RoPE, SwiGLU, RMSNorm,
-  matmul+activation-epilogue.
-- Our custom `relu(a+b)` kernel ported to the IRON 1.4.x API scales
+- In the repo-pinned **mlir-aie 1.4.1** track, individual `npu2` examples for
+  softmax, RoPE, SwiGLU, RMSNorm, and matmul+activation epilogues passed. This
+  is repo-owned Strix evidence for those examples, not a whole-model result and
+  not the separate moving `amd/IRON` operator dashboard.
+- Our custom `relu(a+b)` kernel ported to the mlir-aie 1.4.1 IRON API scales
   **8.0× on 8 columns** (`transform_parallel_binary`), 11.2 GB/s effective.
 
 ### ✅ IREE: CPU-reference correctness on `npu4` (separate track)
@@ -168,10 +178,11 @@ boundary. These correctness runs are also **not performance measurements**.
 ## 🔎 The landscape flip: turnkey exists on XDNA2 — with a catch
 
 - **FastFlowLM** shipped native Linux support in v0.9.35 (2026-03-11),
-  **XDNA2-only** — XDNA1 stays excluded, which is why this repo's from-source
-  path remains the only XDNA1 route. FLM v1.0.0 moved into AMD's
+  **XDNA2-only** — XDNA1 stays excluded from that product. This repo therefore
+  keeps its from-source compiler route, while the separate moving AMD IRON
+  library provides another open Phoenix research surface. FLM v1.0.0 moved into AMD's
   [ROCm GitHub org](https://github.com/ROCm/FastFlowLM) (2026-08).
-  **Lemonade 10.0** wraps it as an OpenAI-compatible server
+  **Lemonade** wraps it as an OpenAI-compatible server
   ([Linux guide](https://lemonade-server.ai/flm_npu_linux.html)).
 - **The catch:** FLM's CLI is MIT, but its **NPU kernels are proprietary
   free-to-use binaries**. It is a product to use, not a codebase to learn
@@ -192,8 +203,10 @@ boundary. These correctness runs are also **not performance measurements**.
 | `scripts/build.sh` (iree-amd-aie) | ✅ hardware-verified | source build + install completed on Strix; bounded parallelism avoids the observed OOM, and the final check requires both `npu1_4col` and `npu4`; tested with Peano 22 `4a1adefa` |
 | `scripts/run-matmul.sh` | ✅ hardware-verified | detects the 4×8 grid and selects `npu4`; i32 128³ and bf16 512³ compile and execute correctly while retaining the XDNA1 path |
 | `tools/npu-runner` | ✅ hardware-verified | C API grid auto-discovery resolves 4×8; both the native runner and ctypes/Python path verified all 16,384 i32 output values |
-| `tools/npu-trim` | ✅ concept intact | op-coverage frontier moves, approach identical; still no vendor EP on Linux to replace it |
-| `mlir-aie` (IRON) track | ✅ **verified — the strongest path** (this commit) | IRON [1.4.1](https://github.com/Xilinx/mlir-aie/releases): Strix first-class (`npu2`), **Peano default**, `aiecc` now a C++ binary, examples lit-driven; our scripts + custom kernel ported (annotation API break — [GOTCHAS](GOTCHAS.md)); numbers in [MLIR-AIE.md](MLIR-AIE.md). Correction vs. earlier research: mlir-aie 1.4.1 **does ship an opt-in HRX Python backend**; it requires an externally supplied `libhrx`. Runtime dispatch of this repo's `relu_add` single-Worker and 8-column designs was hardware-verified here with correctness PASS. Their artifacts were still generated with the existing XRT toolchain, so this is not a claim of a fully XRT-free build+run path. [amd/IRON](https://github.com/amd/IRON) still ships **no wheels** (source-install only, pinned to an mlir_aie 1.3.5.dev snapshot) |
+| [`examples/local-rag-sidecar`](../examples/local-rag-sidecar/) | ✅ hardware-verified integration on `npu4` | CPU deterministic hashing → persistent NPU bf16 scoring → CPU top-k, with all 65,536 outputs checked. It is an integration reference, not a trained retriever; one small query is likely faster on CPU. |
+| `tools/npu-trim` | ✅ concept intact | `build.sh` installs the separately pinned `iree-import-onnx`; the tool extracts and test-compiles independent matmul/conv shapes. It does not rebuild a whole model: the app owns weights, layouts, unsupported glue, fallback, and orchestration. |
+| Repo-pinned `mlir-aie` track | ✅ **hardware-verified on Strix** | [`mlir-aie` 1.4.1](https://github.com/Xilinx/mlir-aie/releases) treats Strix as `npu2`, uses Peano by default, and provides the direct-kernel track measured in [MLIR-AIE.md](MLIR-AIE.md). The optional HRX Python backend needs an external `libhrx`; repo artifacts still used the existing XRT toolchain, so this is not a fully XRT-free claim. |
+| Moving `amd/IRON` operator library | 🔎 **separate upstream hardware evidence** | At exact `cdc48e93`, the 2026-08-15 Phoenix workflow's default five iterations report **2,105 passing / 45 skipped case-runs**, representing **421 distinct passing configurations / 9 distinct skips**.[^iron-phoenix] Do not merge that moving source tree or its Phoenix CI into the repo-pinned 1.4.1 Strix result. |
 
 ## 🔎 Hardware delta that matters when you write kernels
 
@@ -233,15 +246,32 @@ boundary. These correctness runs are also **not performance measurements**.
 - The architecture that makes sense: **NPU-prefill + iGPU-decode hybrid** —
   exactly how AMD's own Windows stack splits the work.
 
+### Research bridge across generations
+
+Open work already reaches beyond the repo-pinned examples, but the baselines
+must stay separate. Rösti and Franz's Phoenix experiment offloads GEMMs from
+GPT-2 124M fine-tuning to a first-generation NPU and reports the authors'
+hybrid throughput and energy figures.[^phoenix-gpt2] STEEL reports an average
+**9.6× XDNA1 latency speedup versus DATO**; its CPU/GPU energy figures are from
+a separate HX 370/**XDNA2** experiment, not that XDNA1 port.[^steel] These are
+published results to reproduce and extend, not benchmarks owned by this repo.
+
 ## Where this goes next
 
-1. ~~Reproduce IRON GEMM on the 4×8 array~~ — **✅ done** (mlir-aie 1.4.1,
+1. ~~Reproduce direct `mlir-aie` GEMM on the 4×8 array~~ — **✅ done** with the
+   repo-pinned mlir-aie 1.4.1
    whole-array GEMM at 6.65 TOPS i8 / 4.64 TFLOPS bf16-bfp16, LLM blocks,
-   full MobileNet; [MLIR-AIE.md](MLIR-AIE.md)). GQA/MHA: the
-   [amd/IRON](https://github.com/amd/IRON) op library has them **aie2p-only**
-   (head-dim 64 only) — but it is source-install-only, pinned to an mlir_aie
-   1.3.5.dev snapshot, and its only quant op is *dequant* (Q4NX/AWQ →
-   bf16). No wheels, no fused W4A16.
+   full MobileNet; see [MLIR-AIE.md](MLIR-AIE.md). Separately, exact
+   `amd/IRON` commit `cdc48e93` has a Phoenix hardware workflow whose default
+   five iterations produce **2,105 passing / 45 skipped case-runs**, representing
+   **421 distinct passing configurations / 9 distinct skips**. Passing cases include bf16 GEMM/GEMV, Q4NX dequant,
+   softmax, RoPE, RMSNorm, LayerNorm, activations, transpose, and SwiGLU
+   decode/prefill. The distinct skips are exactly MHA 3,
+   streaming-SwiGLU-prefill 3, and GEMV+GELU 3; each repeats five times to
+   produce three 15-case-run groups. Its MHA/GQA dashboard is
+   **AIE2P-only**.[^iron-phoenix]
+   That broadens the experiments worth bringing back to XDNA1; it is not this
+   repo's current-pin Phoenix rerun or a full LLM.
 2. ~~Port the iree-amd-aie matmul recipes + `npu-runner` to `npu4` and close
    CPU-reference correctness~~ — **✅ done**. The build, generation-aware matmul
    script, persistent C API runner, and Python wrapper all ran on this Strix
@@ -249,20 +279,23 @@ boundary. These correctness runs are also **not performance measurements**.
    controlled XDNA1-vs-XDNA2 performance comparison remains separate work; no
    speed claim is derived from these correctness runs.
 3. **Quantized prefill GEMM** — the contribution surface, now precisely
-   mapped: [TileFuse](https://arxiv.org/abs/2606.11357) published the W4A16
-   recipe *and code*
+   mapped. **TileFuse is external XDNA2 research**, not a repository runtime
+   result: its paper publishes a W4A16 recipe and external code
    ([glassescrab/mlir-aie](https://github.com/glassescrab/mlir-aie/tree/feature/update-mix-mm-int4-verification),
    fork ~13 months behind main, **chess-first** with Peano optional; AWQ
    group-128, k-tile = group size, dequant fused in-tile with an L1
-   weight-stationary cache, 9 TOPS on Strix Point). What does **not** exist
-   anywhere open: that kernel on **current IRON 1.4.x + Peano-only**, and any
-   llama.cpp integration. [#21725](https://github.com/ggml-org/llama.cpp/issues/21725)
+   weight-stationary cache, 9 TOPS on Strix Point). In the sources cited and
+   audited on **2026-08-15**, we did not identify a public port of that TileFuse
+   kernel to **repo-pinned mlir-aie 1.4.1 + Peano-only**, or a public llama.cpp
+   TileFuse integration. That is a dated search result, **not proof of absence**.
+   [#21725](https://github.com/ggml-org/llama.cpp/issues/21725)
    is still open and unclaimed (the author's WIP stalled 2026-04; AMD's own
    active effort is [`ggml-hsa`](https://github.com/ypapadop-amd/ggml/tree/hsa-backend)
-   on the HSA/ROCr runtime — a different stack from Ubuntu's XRT). Also
-   measured upstream and worth stealing: **64 KB buffer alignment (SMMU page)
-   was a 10× decode knob** in IRON experiments cited in #21725.
-   **Spike-checked on this machine (2026-08-15)**: TileFuse's fused
+   on the HSA/ROCr runtime — a different stack from Ubuntu's XRT).
+   **64 KiB buffer alignment remains a benchmark hypothesis worth testing.**
+   The linked llama.cpp #21725 does not provide a supporting primary experiment
+   or raw log; this repository therefore makes **no 10× decode claim**.
+   **Repo status is compile-only (2026-08-15):** TileFuse's fused
    dequant+GEMM kernel (`mix_int4_ATB.cc`) **compiles cleanly with Peano for
    `aie2p` against mlir-aie 1.4.1 headers** (`-Dbf16_bf16_ONLY`,
    m64/k128/n64 → `matmul_bf16_bf16`). That clears one front-end compile
@@ -270,8 +303,13 @@ boundary. These correctness runs are also **not performance measurements**.
    IRON/ObjectFifo integration, linking, placement, ABI matching, host-side
    weight packing, NPU execution, and numerical verification all remain. The
    pinned [`check-w4a16-compile.sh`](../scripts/check-w4a16-compile.sh) records
-   the source commit, checksums, and exact front-end flags.
+   the external source commit, checksums, and exact front-end flags. There is no
+   repo W4A16 hardware execution, correctness, throughput, or energy result.
 
-*Status: page added 2026-08-15; activation, IRON compute, and the IREE `npu4`
+*Status: page added 2026-08-15; activation, direct-kernel compute, and the IREE `npu4`
 port with CPU-reference correctness were verified the same day on the Strix
 Point machine above. The 🔎 items carry their sources inline.*
+
+[^iron-phoenix]: AMD, [`IRON` at `cdc48e93`](https://github.com/amd/IRON/tree/cdc48e93fd2c8776105780790c46ba4bca1bc40e) and [Phoenix extensive hardware workflow 31876069460](https://github.com/amd/IRON/actions/runs/31876069460), 2026-08-15. Under the workflow's default five iterations, 2,105 passing and 45 skipped case-runs represent 421 distinct passing configurations and 9 distinct skips. Upstream evidence, not a repo exact-v1 XDNA1 run.
+[^phoenix-gpt2]: A. Rösti and M. Franz, [“Unlocking the AMD Neural Processing Unit for ML Training on the Client Using Bare-Metal-Programming Tools”](https://arxiv.org/abs/2504.03083), FCCM 2025. First-generation Phoenix, hybrid GPT-2 124M fine-tuning; not reproduced here.
+[^steel]: V. J. B. Jung et al., [“STEEL: Sparsity-Aware Fused Attention for Energy-Efficient Long-Sequence Inference on AMD's XDNA NPU”](https://arxiv.org/abs/2607.09385), IEEE COINS 2026. Keep its XDNA1 latency and XDNA2 energy experiments separate.
