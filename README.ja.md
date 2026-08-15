@@ -15,14 +15,19 @@
 元来の XDNA1/Phoenix のソースビルド経路を保ちつつ、同じ検出 → ビルド →
 検証 → 常駐 runner の契約を Strix Point XDNA2 (`RyzenAI-npu4`) まで完成させました。
 
-> **なぜこのリポジトリが存在するのか。** 2026年の「Ryzen AI NPU がついに Linux で動く」という
-> 記事のほとんどは **XDNA2**（Strix/Krackan）についてのものだ。Ryzen 7040/8040 ラップトップ
-> （例: 7840U）に搭載された第1世代 **XDNA1** チップは、ターンキーなスタック群によって *明示的に除外されている* —
-> AMD の Ryzen AI Software for Linux、ONNX Runtime の Vitis AI EP、Lemonade/FastFlowLM。
-> XDNA1+Linux では NPU は電源が入り、in-tree の `amdxdna` ドライバによって列挙されるが、
-> **出荷済みのランタイムでその上でモデルを実行できるものは存在しない。** XDNA1 を *実際に* ターゲットにできる
-> 唯一のオープンな道が `iree-amd-aie` — ソースからビルドしたものだ。このリポジトリは、その道のりを
-> 落とし穴ごとに検証したマップである。
+> **なぜこのリポジトリが存在するのか。** 7840U を含む Ryzen 7040/8040
+> ノート PC の第 1 世代 **XDNA1** は、ドライバから見えていても現在の Linux
+> ターンキー製品では使われずに残ることがあります。2026-08-15 時点の AMD
+> 公式 Linux 対応ページが挙げるのは STX/KRK であり、Phoenix ではありません。[^amd-linux-support]
+> この製品上の境界でデバイスが無価値になるわけではありません。現在は **2 つの
+> オープンな低レベル経路**があります。本リポジトリが固定・パッケージする
+> 再現可能な IREE 経路 `iree-amd-aie` と、IRON Python API／コンパイラ経路を
+> 本リポジトリが 1.4.1 に固定する直接カーネルスタック
+> [`Xilinx/mlir-aie`](https://github.com/Xilinx/mlir-aie) です。新しい演算子・
+> アプリケーションライブラリ [`amd/IRON`](https://github.com/amd/IRON) は
+> **MLIR-AIE 言語 bindings の上に構築された別プロジェクト**であり、
+> `Xilinx/mlir-aie` の改名ではありません。本リポジトリは CPU 検証済み経路と
+> 明確な証拠範囲を提供しますが、すぐ使える全モデルサーバーは主張しません。
 
 > 🆕 **XDNA2 Strix Point（`RyzenAI-npu4`）を使っているなら？** 第2世代で状況は一変した:
 > Linux 上のターンキー LLM 推論が今や存在し（FastFlowLM/Lemonade）、Ubuntu 26.04
@@ -45,12 +50,18 @@
 多言語モデル、省電力サービス、新しい量子化、まだ想像していない用途を含む
 **多様な LLM とローカル AI**を育ててほしいと願っています。
 
+**MIT ライセンスの条件に従えば、誰でも本成果を使用、コピー、変更、fork、
+公開、再配布、サブライセンス、教育利用、商用利用できます。** 必要な著作権
+表示とライセンス表示を残してください。第三者コードとモデル資産には各自の
+ライセンスが適用されます。別途許可は不要で、改善の還元は歓迎しますが義務ではありません。
+
 これは任意の LLM がすでにすべて動くという主張ではなく、そのための土台です。
 厳密なデバイス検出、固定されたビルド、CPU リファレンス、常駐 C/Python 呼び出し、
 実例、失敗境界を公開します。成功の尺度は 1 つのモデルを所有することではなく、
-他の人がこの上に自分のものを作れることです。技術的な次の段階は
-[オープン LLM ロードマップ](docs/LLM-ROADMAP.md) と
-[コントリビューションガイド](CONTRIBUTING.md) を参照してください。
+他の人がこの上に自分のものを作れることです。英語版
+[Open NPU Lab](docs/OPEN-NPU-LAB.md) から入り、各主張を一次資料へつなぐ
+[研究台帳](docs/RESEARCH.md) を読み、[オープン LLM ロードマップ](docs/LLM-ROADMAP.md)
+または [コントリビューションガイド](CONTRIBUTING.md) から次の課題を選んでください。
 
 ## 🎬 デモ
 
@@ -64,15 +75,17 @@ XRT と HRX の両方で全 8 カラムを PASS した:
 
 ### XDNA1 / Phoenix — 従来の実機検証デモ
 
-**エンドツーエンド — NPU 上の ONNX MLP**（matmul は NPU 上で、`ReLU` は CPU 上で実行。CPU リファレンスと約 ~0.3% の差で一致）:
+**ハイブリッド経路の仕組み — 生成した ONNX MLP**（matmul は NPU、`ReLU`
+は CPU。学習済みアプリではなく生成 weight を使用し、CPU リファレンスと約
+0.3% の差で一致）:
 
 ![onnx-mlp end-to-end demo](docs/media/onnx-mlp.gif)
 
 | | |
 |:--:|:--:|
-| diagnose → matmul → benchmark → Python、**NPU 上で** | 3 つの `videotestsrc` パターンに対する NPU 2D ブラー → `/dev/video10` |
+| diagnose → matmul → benchmark → Python、**NPU 上で** | 3 つの `videotestsrc` パターンに非 AI の NPU 2D box blur → `/dev/video10` |
 | ![npu-runner demo](docs/media/npu-runner.gif) | ![npu-camera demo](docs/media/npu-camera.gif) |
-| ウェイクワード KWS — NPU 上の 3 つの全結合層（ターゲットで発火、ノイズでは無音のまま） | bf16 は NPU 本来の強み — 最大 **220 GFLOP/s** |
+| ウェイクワード経路 — **例示用の未学習 weight** を使う NPU 全結合層 3 段 | bf16 は NPU 本来の強み — 最大 **220 GFLOP/s** |
 | ![wake-word demo](docs/media/wake-word.gif) | ![benchmark demo](docs/media/benchmark.gif) |
 | 実際の `.onnx` を NPU をターゲットにできる MLIR へ持っていく（ハイブリッドインポート。ソースからの amd-aie コード生成の op カバレッジが最前線） | NPU へ**実際にコンパイルできる** matmul・conv を抽出 — `npu-trim` が op を選別し、クリーンなカーネルを出力 |
 | ![onnx-import demo](docs/media/onnx-import.gif) | ![npu-trim demo](docs/media/npu-trim.gif) |
@@ -148,11 +161,31 @@ less docs/SUPPORT.md
 | [`scripts/verify-stack.sh`](scripts/verify-stack.sh) | CLI、native/Python runner、任意のアプリ/IRON を検証する厳密な実機テスト。 |
 | [`scripts/validate-repo.sh`](scripts/validate-repo.sh) | ハードウェア不要のローカル/CI リリースチェック。 |
 
+## 🔬 サンプルとツール
+
+- [`tools/npu-trim/`](tools/npu-trim/) — import したグラフを選別し、検出した
+  ターゲットにコンパイルできる matmul/conv だけを抽出します。任意 ONNX の
+  ランタイムではありません。
+- [`tools/npu-runner/`](tools/npu-runner/) — VMFB を一度ロードし、C と
+  Python/ctypes から常駐呼び出しします。
+- [`examples/local-rag-sidecar/`](examples/local-rag-sidecar/) — **実際の RAG
+  ループへ NPU を組み込む統合例**: CPU chunk/hash → 常駐 NPU score matrix →
+  CPU top-k → 任意のローカル LLM。特徴量は学習済み embedding ではなく、
+  小規模な 1 クエリは CPU の方が速い可能性があります。現行 pin の XDNA1
+  実機検証は未完了で、現在の live 証拠は XDNA2 です。
+- [`examples/wake-word/`](examples/wake-word/) — 例示用 matched-filter weight
+  で常駐 NPU dense layer を 3 段実行します。**学習済み wake 語彙ではありません**。
+- [`examples/onnx-mlp/`](examples/onnx-mlp/) — **生成した**モデルによる実際の
+  ハイブリッド forward: NPU matmul 2 段、明示的な CPU ReLU、CPU 参照比較。
+- [`examples/npu-camera/`](examples/npu-camera/) — 実際の GStreamer → NPU →
+  `v4l2loopback` 配管ですが、現在の NPU 演算は **非 AI の box blur** です。
+
 ## 🧩 2 つ目の道: `mlir-aie`（IRON）
 
-`iree-amd-aie`（上記）は **グラフ全体** をコンパイルします。
-[`Xilinx/mlir-aie`](https://github.com/Xilinx/mlir-aie)（IRON）はより低レベルの
-道です — **NPU カーネルを直接記述し**、`pyxrt` 経由で実行します。さらに本物の
+`iree-amd-aie`（上記）は対応 IREE グラフをコンパイルします。
+[`Xilinx/mlir-aie`](https://github.com/Xilinx/mlir-aie) は本リポジトリが
+1.4.1 に固定する低レベルスタックです。その IRON Python API／コンパイラ経路で
+**NPU カーネルを直接記述し**、`pyxrt` 経由で実行します。さらに本物の
 ML の `programming_examples` を同梱しています。**両世代**の実機根拠はありますが、
 同じ依存関係スナップショットで検証されたものではありません。Phoenix/`npu1` の
 結果は当時の履歴で、v1 の厳密なピンは Strix/`npu2` で再検証済みです（自動検出）。
@@ -161,6 +194,21 @@ ML の `programming_examples` を同梱しています。**両世代**の実機�
 この mlir-aie リリースの `utils/peano-requirements.txt` のピンと一致する場合だけです。
 一致しなければ、mlir-aie venv にそのピン留めされた wheel をインストールします。
 詳しいガイド → **[docs/MLIR-AIE.ja.md](docs/MLIR-AIE.ja.md)**。
+
+[`amd/IRON`](https://github.com/amd/IRON) は、MLIR-AIE 言語 bindings の上に
+構築された別の新しい演算子・アプリケーションライブラリです。
+`Xilinx/mlir-aie` の改名でも移転先でもありません。この動き続けるライブラリは、
+本 release が固定する直接カーネル経路より大幅に広い範囲を扱います。
+厳密な commit [`cdc48e93`](https://github.com/amd/IRON/tree/cdc48e93) で、AMD
+公式 Phoenix workflow は **2,105 件成功、45 件スキップ**を報告しました。
+これは pytest の case-run 数です。既定の 5 iterations を考慮すると、
+**異なる成功構成 421 件と異なる skip 構成 9 件**であり、2,105 個の別テスト
+ではありません。9 件の skip は MHA、streaming-SwiGLU、GEMV+GELU が各 3
+構成で、それぞれ 5 回反復されています。[^iron-phoenix-ci] 成功した CPU 参照
+AIE2 範囲には GEMM/GEMV、Q4NX 逆量子化、softmax、RoPE、
+RMSNorm/LayerNorm、activation、transpose が含まれます。これは上流 Phoenix
+の根拠であり、本 repo の現行 pin XDNA1 再実行でも LLM 全体でもありません。
+GQA はこの Phoenix run では立証されていません。
 
 ```bash
 ./scripts/setup-mlir-aie.sh                 # mlir_aie wheel + py3.14 venv + compatible Peano
@@ -203,11 +251,12 @@ GEMM が **6.65 TOPS**（i8）/ **4.64 TFLOPS**（bfp16 経由の bf16）に達�
 
 対象者別（ゲーム · AI エージェント · ローカルアプリ）の実現可能性評価付き完全ガイド → [docs/APPLICATIONS.ja.md](docs/APPLICATIONS.ja.md)。
 
-**[docs/USE-CASES.ja.md](docs/USE-CASES.ja.md)** を参照。正直に言うと: これは **カーネルレベル**
-（matmul/conv のビルディングブロック）であり、ターンキーなモデルサービングではない。NPU プログラミングの学習、
-ベンチマーク、特定の低消費電力推論プリミティブのビルド/オフロード、そしてオープンな XDNA1-on-Linux の取り組みへの
-貢献には向いている。XDNA1 で **ドロップインの** LLM/Whisper/ONNX ランタイムが手に入るわけ **ではない** —
-それは XDNA2 / Windows の領域だ。
+**[docs/USE-CASES.ja.md](docs/USE-CASES.ja.md)** を参照。ハイブリッドな
+ローカル AI ラボを作りましょう。NPU は反復 scoring、常時段階、検証済み
+dense/conv ブロック、CPU は I/O・policy・fallback、iGPU は必要時の token
+生成を担当します。[local RAG sidecar](examples/local-rag-sidecar/) がこの分担を
+ソースで示します。XDNA1 の任意モデル全体を扱う drop-in server はまだなく、
+エネルギー効率も実証済み成果ではなく測定目標です。
 
 ## 📚 背景
 
@@ -222,9 +271,10 @@ XDNA1 と XDNA2 の比較、第1世代で Linux が難しい理由、そして `
 | レイヤー | 私たちが土台とする / 隣り合う先行成果 |
 |---|---|
 | カーネルドライバ | [`amd/xdna-driver`](https://github.com/amd/xdna-driver) — `amdxdna`、Linux 6.14 以降メインライン、XDNA1 を `/dev/accel/accel0` として列挙する |
-| コンパイラ / ランタイム | [`nod-ai/iree-amd-aie`](https://github.com/nod-ai/iree-amd-aie)、[`Xilinx/mlir-aie`](https://github.com/Xilinx/mlir-aie)（IRON）、[`Xilinx/llvm-aie`](https://github.com/Xilinx/llvm-aie)（Peano）、[`amd/Triton-XDNA`](https://github.com/amd/Triton-XDNA) — XDNA 世代を対象とする上流 SDK / フレームワーク |
+| コンパイラ / ランタイム | [`nod-ai/iree-amd-aie`](https://github.com/nod-ai/iree-amd-aie)、[`Xilinx/mlir-aie`](https://github.com/Xilinx/mlir-aie)（固定した 1.4.1 の IRON Python API／コンパイラスタック）、[`Xilinx/llvm-aie`](https://github.com/Xilinx/llvm-aie)（Peano）、[`amd/Triton-XDNA`](https://github.com/amd/Triton-XDNA) — XDNA 世代を対象とする上流 SDK / フレームワーク |
+| 新しい演算子／アプリケーションライブラリ | [`amd/IRON`](https://github.com/amd/IRON) — MLIR-AIE 言語 bindings 上の別プロジェクトであり、`Xilinx/mlir-aie` の改名・移転先ではない |
 | 先行する XDNA1 + Linux コンピュート | 研究論文（[arXiv 2504.03083](https://arxiv.org/abs/2504.03083) — IRON 経由で Phoenix 7940HS 上で GPT-2）、プリミティブのみのチュートリアル、[Gentoo wiki の XDNA 解説](https://wiki.gentoo.org/wiki/User:Lockal/AMDXDNA) |
-| Linux でのターンキー NPU LLM | FastFlowLM · Lemonade 10.x · AMD Ryzen AI SW — **すべて XDNA2 専用であり、XDNA1 を明示的に除外している** |
+| Linux でのターンキー NPU LLM | [`FastFlowLM`](https://github.com/ROCm/FastFlowLM) と [`Lemonade`](https://github.com/lemonade-sdk/lemonade/blob/main/docs/guide/faq.md) の NPU 経路は XDNA2 を明示的に要件とする。AMD Ryzen AI Software 1.8 for Linux が挙げるのは STX/KRK のみで、Phoenix XDNA1 ではない |
 
 したがって「Linux 初の NPU」「初のコンパイラ」「XDNA1 を初めて動かした」と言えば、いずれも
 過大な主張になる — 私たちはそうした主張をしない。
@@ -266,8 +316,13 @@ XDNA1/Phoenix の結果は当時の nightly による履歴であり、v1 の厳
 
 ## 📄 ライセンス
 
-**[MIT](LICENSE)** © 2026 Jonas-Augustinus-Linus — 使って、フォークして、出荷してくれ。
+**[MIT](LICENSE)** © 2026 Jonas-Augustinus-Linus — 使用、コピー、変更、fork、
+公開、再配布、教育利用、商用出荷ができます。ライセンスが求める著作権表示と
+ライセンス表示を残してください。
 
 このリポジトリのスクリプトとドキュメントは MIT だ。これらは、それぞれ独自のライセンスの下にある
 サードパーティのプロジェクト — IREE と `iree-amd-aie`（Apache-2.0 WITH
 LLVM-exception）、`Xilinx/llvm-aie`（Peano） — をビルドし駆動するものであり、このリポジトリはそれらを再配布しない。
+
+[^amd-linux-support]: AMD, [Ryzen AI Software 1.8 for Linux](https://ryzenai.docs.amd.com/en/latest/linux.html), 2026-08-15 閲覧。
+[^iron-phoenix-ci]: AMD IRON, [公式 Phoenix workflow run 31876069460](https://github.com/amd/IRON/actions/runs/31876069460), commit `cdc48e93`.

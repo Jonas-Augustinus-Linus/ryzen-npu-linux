@@ -1,60 +1,92 @@
 **[🇬🇧 English](USE-CASES.md) · [🇩🇪 Deutsch](USE-CASES.de.md) · [🇫🇷 Français](USE-CASES.fr.md) · [🇰🇷 한국어](USE-CASES.ko.md) · [🇯🇵 日本語](USE-CASES.ja.md)**
 
-# Wo kann man eine XDNA1-NPU unter Linux tatsächlich einsetzen?
+# Einen XDNA-Laptop zum hybriden lokalen KI-Labor machen
 
-Sei ehrlich zu dir selbst, was den Reifegrad angeht. Was du heute von
-`iree-amd-aie` auf XDNA1+Linux bekommst, ist ein **Compiler + Runtime für AIE-Kernels**
-(matmul, conv und die elementweisen Ops drumherum), erreichbar über die
-`iree-*`-CLI und die IREE-Runtime-C-API. Es ist **kein** schlüsselfertiger Modellserver.
+Eine NPU muss nicht allein ein vollständiges LLM bereitstellen, um im System
+nützlich zu sein. Der praktische Weg für XDNA1 unter Linux besteht heute darin,
+der NPU eine kleine, wiederholte und CPU-prüfbare Stufe zu geben, I/O, Regeln und
+nicht unterstützte Operationen auf der CPU zu belassen und die iGPU bei Bedarf
+für Token-Erzeugung mit hohem Durchsatz einzusetzen.
 
-## Das mentale Modell: NPU vs. iGPU vs. CPU auf diesem Laptop
+```text
+Mikrofon / Kamera / Dokumente / UI-Ereignisse
+                          │
+                          ▼
+               CPU: I/O, Steuerung, Fallback
+                          │
+               ┌──────────┴──────────┐
+               ▼                     ▼
+ NPU: Always-on-Trigger,        iGPU: quantisiertes LLM
+ Scoring, Dense-/Conv-Blöcke     Prefill + Erzeugung
+               └──────────┬──────────┘
+                          ▼
+               CPU: Tools, Regeln, Ausgabe
+```
 
-| Gerät | Am besten geeignet für | Verwende es für |
-|---|---|---|
-| **NPU (XDNA1, ~10 TOPS)** | dauerhafte, **stromsparende** quantisierte/bf16-Inferenz-Kernels | Auslagern bestimmter matmul/conv-Blöcke bei gleichzeitig geringem Akkuverbrauch |
-| **iGPU (Radeon 780M)** | allgemeines Rechnen mit hohem Durchsatz | **dein echtes Arbeitspferd für lokale KI unter Linux heute** — LLMs via Vulkan/ROCm |
-| **CPU** | alles, latenzflexibel | Glue, Steuerung, Fallback |
+Das ist eine technische Aufteilung, kein allgemeines Leistungsurteil. Niedriger
+Energieverbrauch und längere Akkulaufzeit sind Entwicklungsziele; dieses Repo
+hat noch keine kontrollierten End-to-End-Energiemessungen veröffentlicht, die
+sie belegen.
 
-Die NPU existiert einzig und allein wegen der **Performance pro Watt**. Wenn dir der
-Stromverbrauch egal ist, ist die 780M-iGPU der schnellere und weitaus einfachere Weg für allgemeine KI unter Linux.
+## Nützliche Projekte aus dem mitgelieferten Quellcode
 
-## ✅ Heute gut geeignet
+| Projekt | Rolle der NPU | Rolle von CPU / iGPU | Evidenzgrenze |
+|---|---|---|---|
+| **Private RAG-Hilfe** | Dokument-/Query-Batches durch ein persistentes bf16-Matmul bewerten | CPU zerlegt, hasht und wählt Top-k; optional erzeugt ein lokales LLM auf einem anderen Backend | [`local-rag-sidecar`](../examples/local-rag-sidecar/) integriert die NPU wirklich in den RAG-Loop. Die Merkmale sind deterministisches Hashed Bag-of-Words, **keine trainierten Embeddings**; für eine kleine Einzelanfrage ist die CPU wahrscheinlich schneller. Der aktuelle Live-Nachweis gilt für XDNA2, der XDNA1-Lauf mit aktuellem Pin steht aus. |
+| **Lokaler Sprachassistent** | Always-on-Wake- oder Intent-Head | CPU für Audio-Frontend und Steuerung; iGPU-LLM für Antworten | [`wake-word`](../examples/wake-word/) führt drei persistente NPU-Dense-Layer aus, doch die gelieferten Gewichte illustrieren nur den Pfad und bilden kein trainiertes Wake-Vokabular. |
+| **Private Kamera-/Barrierefreiheits-Trigger** | unterstützte Conv-/Dense-Klassifikatorstufe | CPU nimmt auf und komponiert; die App erzeugt ein Linux-Ereignis | [`npu-camera`](../examples/npu-camera/) belegt die GStreamer → NPU → `v4l2loopback`-Verkabelung, führt derzeit aber einen Nicht-KI-Box-Blur aus. Ersetze ihn durch eine trainierte, CPU-geprüfte Modellstufe. |
+| **Hybrides ONNX-Experiment** | extrahierte unterstützte Matmul-/Conv-Partitionen | CPU behält ReLU, Graph-Glue und Fallback | [`onnx-mlp`](../examples/onnx-mlp/) führt einen echten hybriden Forward-Pfad aus, aber Netz und Gewichte sind erzeugte Demodaten. [`npu-trim`](../tools/npu-trim/) prüft Teile, statt einen beliebigen Graphen magisch zu unterstützen. |
+| **Forschung an quantisierten Blöcken** | GEMM/GEMV, Dequantisierung, Normalisierung, RoPE und Softmax, sobald der jeweilige Pfad verifiziert ist | CPU-Golden, nicht unterstützte Attention/Steuerung; optional iGPU für den Rest | AMDs offizieller IRON-Phoenix-Workflow am Commit `cdc48e93` bestand CPU-referenzierte AIE2-Beispiele dieser Primitive.[^iron-ci] Das ist Upstream-Evidenz, kein XDNA1-Ergebnis dieses Exact-Locks und kein vollständiges LLM. |
+| **Generationsübergreifendes Labor** | denselben Quellcode mit gerätespezifischen Zielen ausführen | CPU protokolliert Identität und prüft jede Ausgabe | XDNA1-Historie, aktuellen XDNA2-Pin und künftige Geräte getrennt halten. Ein sauberer Fehler auf unbekannter Hardware ist ebenfalls nützlich. |
 
-- **NPU- / Spatial-Dataflow-Programmierung lernen.** Ein echtes Gerät, für das man kompilieren und
-  dessen Ausführung man beobachten kann. `run-matmul.sh` ist eine funktionierende Basis zum Verändern.
-- **Benchmarking der NPU** für matmul/conv bei verschiedenen Shapes und Dtypes (i32, bf16→f32).
-- **Stromsparende Inferenz-*Primitive*.** Handgebaute matmul/conv-Kernels, die du
-  per IREE-Runtime-C-API in eine App einbettest und mit `--device=amdxdna` dispatchst, um
-  eine gleichmäßige, leichtgewichtige Last von CPU/GPU fernzuhalten (z. B. kleine CNN-Stufen,
-  Feature-Extraktoren, Matmuls für die Signalverarbeitung).
-- **Prototyping / Forschung** zu AIE-Tiling, objectFifo- vs. air-Pipelines, Packet-
-  Flow — die Bausteine, die letztlich größere Modelle realisierbar machen.
-- **Upstream beitragen.** Jedes XDNA1-auf-Linux-Ergebnis hilft; die CI des Projekts
-  hat einen dedizierten Phoenix-Runner, aber die Community-Abdeckung ist dünn.
+## Eine Abfolge, die veröffentlichbare Arbeit hervorbringt
 
-## 🚫 Heute auf XDNA1+Linux nicht realistisch
+1. **Einen Korrektheitsvertrag reproduzieren.** Vor jeder Optimierung den strikten
+   Detektor und den vollständigen CPU-Vergleich ausführen.
+2. **Einen synthetischen Teil ersetzen.** Wake-Word-Gewichte trainieren, eine
+   echte Embedding-Projektion liefern oder den Kamera-Blur durch eine evaluierte
+   Modellstufe ersetzen. CPU-Fallback beibehalten.
+3. **Komponieren, nicht vortäuschen.** Die NPU-Stufe mit lokalem LLM, Datenbank,
+   Desktop-Aktion oder Sensorloop verbinden und kennzeichnen, wo jede Operation läuft.
+4. **Die ganze Anwendung messen.** Kernel- und End-to-End-Latenz, Transfers,
+   Genauigkeit, Idle-/Lastleistung, Energie pro Aufgabe, Temperatur sowie CPU-/
+   iGPU-Baselines berichten. Ein TOPS-Badge beweist keine Energieeffizienz.
+5. **Die Grenze veröffentlichen.** Geräteidentität, Compiler-Commit, Shapes,
+   Datentypen, Befehle, Vollausgabe-Korrektheit, Skips und ersten Fehler festhalten.
+   Auch ein negatives Ergebnis mit Minimalreproduzierer hilft der Forschung.
 
-- **Schlüsselfertiges LLM- / Whisper- / Stable-Diffusion-Serving auf der NPU.** Es gibt keine
-  Drop-in-Runtime, die XDNA1 unter Linux anspricht. Nutze die **iGPU** (Ollama/llama.cpp Vulkan, ROCm),
-  oder **Windows** (Legacy Vitis AI / Studio Effects), oder **XDNA2**-Hardware.
-- **„Zeig auf meine `.onnx` und los."** Der Vitis-AI-EP der ONNX Runtime fällt für
-  Client-NPUs unter Linux auf die CPU zurück. Du erstellst/lowerst Kernels, du importierst keine beliebigen Graphen.
-- **Quantize-and-Deploy-Pipelines.** Quantisierungstools existieren; was fehlt, ist die *Runtime*, um
-  das Ergebnis auf XDNA1+Linux auszuführen — quantisiere also nicht in der Hoffnung, hier deployen zu können.
+## Zwei offene Wege mit unterschiedlichen Aufgaben
 
-## Wie man einen kompilierten Kernel in eine App einbettet
+- Der gepinnte `iree-amd-aie`-Weg dieses Repos paketiert Gerätemodule und einen
+  persistenten C-/Python-Aufruf. Hier beginnen die gelieferten Integrationen und
+  der exakte Release-Vertrag.
+- Der gepinnte [`Xilinx/mlir-aie`](https://github.com/Xilinx/mlir-aie)-1.4.1-Weg
+  legt die IRON-Python-API/den Compiler für direkte räumliche Kernel frei. Die
+  neuere Operator-/Anwendungsbibliothek [`amd/IRON`](https://github.com/amd/IRON)
+  ist ein separates Projekt auf MLIR-AIE-Sprachbindungen, keine Umbenennung. Ihr
+  offizieller Phoenix-Workflow meldete am Commit `cdc48e93` **2.105 bestandene
+  und 45 übersprungene Pytest-Fallläufe**. Mit fünf Standardwiederholungen sind
+  das **421 verschiedene bestandene und 9 verschiedene übersprungene
+  Konfigurationen**. Die Skips sind je drei MHA-, Streaming-SwiGLU- und
+  GEMV+GELU-Konfigurationen, jeweils fünfmal wiederholt. GQA wird von diesem Lauf
+  nicht belegt; daraus darf kein Gesamt-LLM-Nachweis für XDNA1 werden.[^iron-ci]
 
-Die von `iree-compile` erzeugte `.vmfb` wird von der IREE-Runtime geladen. Entweder:
+AMD Ryzen AI Software 1.8 für Linux listet STX/KRK statt
+Phoenix.[^ryzenai-linux] Das begrenzt den Drop-in-Produktweg, schließt diese
+offenen niedrigeren Wege aber nicht.
 
-- **CLI**: `iree-run-module --device=amdxdna ... --amdxdna_n_core_rows=4 --amdxdna_n_core_cols=4`
-  (ideal für Batch-Jobs / Skripte), oder
-- **C-API**: Linke `iree/runtime` aus deiner `iree-install`, erstelle das `amdxdna`-
-  HAL-Device, lade das Modul und rufe es auf — derselbe Pfad, den die CLI nutzt. So
-  würdest du eine NPU-matmul/conv in eine echte stromsparende Pipeline einbinden.
+## Die ehrliche Grenze
 
-## Wenn du schlüsselfertige NPU-Nutzung willst
+Es gibt hier weiterhin keinen unterstützten Befehl, der ein beliebiges GGUF-,
+Whisper-, Stable-Diffusion- oder ONNX-Modell nimmt und den gesamten Graphen auf
+XDNA1 bereitstellt. Compilerabdeckung, Speicher, Transfers und Host-Steuerung
+sind reale Grenzen. Die produktive Antwort ist, sie sichtbar zu machen,
+verifizierte Stufen auszulagern und jede Stufe austauschbar zu halten.
 
-1. **XDNA2-Hardware** (Strix / Strix Halo / Krackan) — dort landet das gesamte
-   Linux-NPU-Momentum von 2026 tatsächlich (Lemonade/FastFlowLM, AMD Ryzen AI SW für Linux).
-2. **Windows** auf demselben 7840U — der Legacy-Vitis-AI-Pfad und Windows Studio
-   Effects unterstützen Phoenix dort.
+Die vollständige Einladung und Quellcode-/Evidenzgalerie steht im englischen
+[Open NPU Lab](OPEN-NPU-LAB.md). Primärquellen und Aussagegrenzen enthält
+[RESEARCH.md](RESEARCH.md), die nächsten Operator- und Modellschritte die
+[LLM-Roadmap](LLM-ROADMAP.md).
+
+[^iron-ci]: AMD IRON, [offizieller Phoenix-Workflowlauf 31876069460](https://github.com/amd/IRON/actions/runs/31876069460), Commit [`cdc48e93`](https://github.com/amd/IRON/tree/cdc48e93).
+[^ryzenai-linux]: AMD, [Ryzen AI Software 1.8 für Linux](https://ryzenai.docs.amd.com/en/latest/linux.html), abgerufen am 15.08.2026; die Seite nennt STX und KRK als unterstützte Plattformen.

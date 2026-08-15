@@ -1,304 +1,193 @@
 **[🇬🇧 English](APPLICATIONS.md) · [🇩🇪 Deutsch](APPLICATIONS.de.md) · [🇫🇷 Français](APPLICATIONS.fr.md) · [🇰🇷 한국어](APPLICATIONS.ko.md) · [🇯🇵 日本語](APPLICATIONS.ja.md)**
 
-# Was kann man mit der XDNA1-NPU unter Linux tatsächlich MACHEN?
+# Was lässt sich mit einer XDNA1-NPU unter Linux bauen?
 
-Eine praktische, ehrliche Landkarte für alle, die die Ryzen-AI-NPU der ersten Generation
-(XDNA1 / „Phoenix", z. B. den 7840U) unter Linux **nutzen** wollen — Gamer, Erbauer von
-lokaler KI / Agenten, App-Entwickler und Lernende.
+Dies ist eine praktische Karte für Besitzer von Phoenix-Laptops wie dem Ryzen
+7 7840U. Es geht nicht darum, jedes Modell als schlüsselfertig darzustellen.
+Vielmehr soll das Silizium, das bereits in unseren Rechnern steckt, zu einem
+offenen Linux-Labor werden: eine nützliche Stufe ausführen, jede Ausgabe mit
+einem vertrauenswürdigen CPU-Ergebnis vergleichen, sie mit CPU und iGPU
+kombinieren und genügend Belege veröffentlichen, damit andere weiterarbeiten
+können.
 
-## Der ehrliche Realitätsrahmen (lies das zuerst)
+Alle in diesem Repository verfassten Inhalte stehen unter der MIT-Lizenz:
+**Jeder darf sie gemäß den Lizenzbedingungen nutzen, kopieren, ändern, forken,
+veröffentlichen und weitergeben.** Die Mission steht im
+[Open NPU Lab](OPEN-NPU-LAB.md), Primärquellen und weitere Abzweigungen in den
+[Research branches](RESEARCH.md).
 
-Was du heute mit XDNA1+Linux hast, ist **Kernel-/Primitiv-Ebene**, nicht schlüsselfertig.
-Der einzige funktionierende Software-Pfad ist [`nod-ai/iree-amd-aie`](https://github.com/nod-ai/iree-amd-aie),
-aus dem Quellcode gebaut — ein **Compiler + Runtime für AIE-Kernels** (matmul, conv und
-die elementweisen Ops drumherum), kein Modellserver. Jeder schlüsselfertige Stack (AMD
-Ryzen AI SW für Linux, ONNX Runtime Vitis AI EP, Lemonade/FastFlowLM) **schließt XDNA1
-aus**; vollständige schlüsselfertige Modelle und LLMs sind **XDNA2-/Windows-Territorium**. Für die
-meisten anspruchsvollen lokalen KI-Lasten auf diesem Laptop ist die **Radeon-780M-iGPU** (Ollama/llama.cpp Vulkan,
-ROCm) schneller und unendlich einfacher — sie ist dein echtes Arbeitspferd. **Warum sich
-also überhaupt mit der NPU abmühen?** Weil ihr echter Vorteil **Performance pro Watt
-für ein gleichmäßiges, dauerhaft laufendes Inferenz-Primitiv** ist: ein kleiner conv-/matmul-Block, der
-ewig läuft, am Akku nippt und CPU und iGPU im Leerlauf hält. Das ist die Sache,
-die es zu bauen lohnt — und mehrere davon sind heute baubar. Der Rest dieses Leitfadens
-dreht sich darum, diesen Vorteil zu nutzen, ohne zu viel zu versprechen.
+## Erst das Beleglabel lesen, dann die Fähigkeit
 
-> **Ein Mythos, der sofort sterben muss:** Es gibt **keinen stillen CPU-Fallback**. Wenn du
-> dem Compiler eine Op übergibst, die er nicht auf der NPU platzieren kann, bekommst du einen
-> **Compile-Fehler weiter unten in der Kette**, keine transparente CPU-Ausführung. „Führ mein Modell
-> auf der NPU aus und lass die schwierigen Teile zurückfallen" ist **nicht**, wie diese Toolchain
-> funktioniert — du partitionierst den Graphen selbst und behältst die nicht unterstützten Teile als separaten Code auf der CPU.
+- **Repo-Hardware:** Dieses Repository hat den Code auf der genannten NPU
+  ausgeführt und das vollständige Ergebnis geprüft. Der aktuelle Lock ist auf
+  Strix Point `npu4` belegt; für Phoenix gibt es wertvolle frühere
+  Hardwareergebnisse, aber noch keinen Lauf mit dem aktuellen Lock.
+- **Upstream-Hardware:** Ein Upstream-Projekt hat den Test auf Hardware
+  ausgeführt. Das ist ein reproduzierbarer Weg, kein automatisch geerbtes
+  Ergebnis dieses Repositories.
+- **Vorlage / Plumbing:** echter NPU-Dispatch oder echtes Linux-I/O, aber mit
+  synthetischen Gewichten oder einer beispielhaften Operation statt eines
+  trainierten Produkts.
+- **Nur kompiliert / Projekt:** Hardwareausführung und numerische
+  Korrektheitsprüfung stehen noch aus.
 
----
+Kompilieren ist nicht Ausführen; Ausführen ist nicht Korrektheit; ein
+Kernel-Timing ist kein Anwendungsergebnis. Die NPU-Energie wurde in diesem Repo
+noch nicht gemessen, daher wird keine Akkulaufzeit versprochen.
 
-## Leistungsobergrenze: Was `iree-amd-aie` *heute* auf XDNA1 ausführen kann
+## Es gibt mehr als einen offenen Softwarepfad
 
-Das ist der Teil, von dem alles andere abhängt, daher wird er präzise formuliert. Verifiziert
-gegen das On-Device-CI-Harness (`build_tools/ci/cpu_comparison/run.py`,
-`matmul_test_config.py`) und das Compiler-Dispatch (`KernelDispatch.cpp`) am Repo-
-HEAD `fddfec1b`, und gegengeprüft gegen eine adversariale Durchsicht dieser Quellen.
+Die enge Operatorgrenze älterer Fassungen dieser Seite gilt für das
+**im Repository gepinnte `iree-amd-aie`-Backend am Commit `fddfec1b`**, nicht
+für das gesamte XDNA1-Ökosystem.[^iree-amd-aie]
 
-### Ops, die echt auf der NPU LAUFEN (numerisch geprüft gegen llvm-cpu)
-
-| Op | auf `npu1_4col` verifizierte dtypes | Status |
+| Pfad | Was die Belege aussagen | Grenze |
 |---|---|---|
-| `linalg.matmul` (+ `matmul_transpose_a/b`, `batch_matmul`, `matmul4d`) | `i8→i32`, `i32→i32`, `bf16→f32` | ✅ Numerisch in CI geprüft |
-| `linalg.matmul` + **Bias-Add** (Linear-Layer) | nur `bf16→f32` | ✅ Läuft auf npu1 (`MatmulThinBias`/`MatmulFullBias`, Fusion-Flag) |
-| `linalg.conv_2d_nhwc_hwcf` (einfache 2D-conv) | `i32→i32`, `bf16→f32`, `i8→i32` | ✅ Registriert & ausgeführt auf npu1 (`conv-decompose`) |
-| **Multi-Dispatch-Graphen** (Producer→Consumer-Ketten) | wie oben | ✅ `three_matmuls`, `two_matmul_switching` bestehen auf npu1 |
+| Gepinntes `iree-amd-aie` dieses Repos | Das Repo verifiziert sorgfältig geformte bf16/i8/i32-Matmuls, persistenten Dispatch und Hybridbeispiele. Der Conv-Pfad ist eng und zielabhängig. | Der exakte aktuelle Lock ist auf `npu4` belegt; die veröffentlichten 7840U-Ergebnisse stammen vom früheren funktionierenden Snapshot. Nicht unterstützte importierte Graphregionen fallen nicht still auf die CPU zurück. |
+| Gepinnter `mlir-aie`-1.4.1-Pfad dieses Repos | Direkte IRON-Kernels und Upstream-Beispiele liefen auf dem Strix-Point-System des Repos; dieser niedrigere Pfad eignet sich für Autoren, die Platzierung und Datenbewegung selbst steuern. | Genau dieser Pfad wurde auf der XDNA1-Hardware des Repos noch nicht erneut ausgeführt. |
+| Bewegliches [`amd/IRON`](https://github.com/amd/IRON) | Am exakten Commit `cdc48e93` meldete AMDs Phoenix-Hardwareworkflow am 2026-08-15 bei seinen standardmäßigen fünf Iterationen **2.105 bestandene / 45 übersprungene Fallläufe**: **421 verschiedene bestandene Konfigurationen / 9 verschiedene Skips**. Die erfolgreiche AIE2-Abdeckung umfasste bf16 GEMM/GEMV, Q4NX-Dequantisierung, Softmax, RoPE, RMSNorm, LayerNorm, Aktivierungen, Transpose sowie SwiGLU-Decode/Prefill-Varianten.[^iron-phoenix] | Das ist starke **Upstream-Phoenix-Evidenz**, kein Exact-v1-XDNA1-Lauf dieses Repos und kein vollständiges LLM. Die 9 verschiedenen Skips sind 3 MHA-, 3 streaming-SwiGLU-prefill- und 3 GEMV+GELU-Konfigurationen, jeweils fünfmal wiederholt und damit drei Gruppen zu 15 Fallläufen. MHA/GQA bleibt im Dashboard AIE2P-only. |
 
-Ein Modell ist also **nicht** auf einen einzelnen Kernel beschränkt — du kannst mehrere
-unterstützte Dispatches zu einem kleinen Graphen verketten, der auf der NPU ausgeführt wird.
+Die entscheidende Korrektur lautet: „Dieses gepinnte Backend kann eine
+Operation nicht lowern“ bedeutet **nicht** „XDNA1 kann so einen Kernel nicht
+ausführen“. Zu jeder Aussage gehören die genaue Toolchain, das Gerät, der Test
+und das numerische Orakel.
 
-### Ops, die TEILWEISE / experimentell sind (Lowering existiert, aber nicht CI-garantiert auf Hardware)
+## ONNX: importieren, extrahieren, Zusammensetzung selbst besitzen
 
-| Op | Realität | Vertrauensgrad |
-|---|---|---|
-| `linalg.softmax` | Eine npu1-Lowering-Strategie **und** ein bf16-LUT-exp-Microkernel existieren, aber der On-Device-e2e-Test ist **auskommentiert**, bis [iree#21633](https://github.com/iree-org/iree/issues/21633) gelöst ist. | 🟡 Compile-Pfad existiert; On-Device-Korrektheit **nicht** CI-garantiert |
-| `conv_2d_nhwc_hwcf_q` (i8-**quantisierte** conv) | Nur eine **FileCheck-/Compile**-Fixture (`conv2d_nhwc_q.mlir`); **nicht** in einen Hardware-Lauf verdrahtet und **nicht** numerisch verifiziert. | 🟡 Nur Source-/Pass-Unterstützung — nimm nicht an, dass es läuft |
-| i8-matmul + **Dequant-/Requant**-Epilog (das INT8-Fully-Connected-Muster) | `matmul_elem_2.mlir` ist ein echter Requant-Epilog, **aber verwaist** — kein Harness registriert es, also wird es heute **nicht** über CI ausgeführt. Der oben genannte *Gleitkomma*-matmul+Bias-Pfad ist das, was tatsächlich durchlaufen wird. | 🟡 Das Muster ist in der Source real; du musst es selbst verdrahten & verifizieren |
-| `depthwise_conv_2d_nhwc_hwc` | Ein Lowering-Zweig existiert, wird aber im Tree als „fragil, keine Leitplanken" beschrieben; der CI-Test ist **auskommentiert**. | 🟡 Probier es, erwarte Tuning; nicht garantiert |
-| `reduction_sum` | Als Sample vorhanden. | 🟡 |
+Das aktuelle [`scripts/build.sh`](../scripts/build.sh) installiert ein separat
+gepinntes `iree-import-onnx`; für den Repo-Workflow sind weder ein IREE-Neubau
+noch ein Umweg über Python-Bindings nötig. [`tools/npu-trim`](../tools/npu-trim/)
+kann einen Graph importieren oder prüfen, unabhängige Matmul-/Conv-Formen
+erkennen, saubere Kernels ausgeben und jeden davon für das erkannte Ziel
+testkompilieren.
 
-### Ops, die heute NICHT auf XDNA1 laufen
+Es baut oder startet bewusst **kein** beliebiges Gesamtmodell. Die Anwendung
+besitzt Gewichte, Padding/Layout-Konvertierungen, nicht unterstützte
+Operationen, CPU-Fallback und Orchestrierung. Das Beispiel
+[`examples/onnx-mlp`](../examples/onnx-mlp/) ist der ausführbare Vertrag:
+NPU-Matmul → CPU-ReLU → NPU-Matmul, geprüft gegen ein bf16-CPU-Orakel.
 
-- **Attention / Flash-Attention** — es ist überhaupt keine Attention-Op für das AIE-
-  Backend registriert; die vorausgesetzte softmax-e2e ist deaktiviert. ⛔ auf XDNA1.
-- **LayerNorm, gather/Embedding-Lookups, dynamische Shapes** — nicht im Dispatch-Satz.
-- **Recurrent Cells (GRU/LSTM)** — kein Lowering; architektonisch ohnehin schlecht passend.
-
-### Kann man ein ganzes kleines Modell ausführen?
-
-**Baubar, nicht schlüsselfertig.** Ein kleines **quantisiertes MLP oder 2–3-schichtiges CNN**, dessen
-*jede* Schicht auf unterstützte matmul-/einfache-conv-/fused-elementweise-Dispatches abbildet,
-kann als Dispatch-Graph auf der NPU ausgeführt werden. Aber: (a) dieser Build **kann
-weder `.onnx` noch PyTorch importieren** — er wurde mit `IREE_INPUT_TORCH/ONNX/TOSA=OFF` und
-ohne Python-Bindings kompiliert und liefert **kein `iree-import-onnx`** mit; du fütterst ihn nur mit handgeschriebenem
-**linalg-Level-MLIR**. Um ein echtes Modell zu importieren, musst du **IREE neu bauen** mit
-jenen Frontends ON. (b) Jede nicht unterstützte Op (softmax bis #21633, Attention,
-layernorm, depthwise, Embeddings, dynamische Shapes) ist ein **harter Compile-Fehler**, also
-musst du sie vermeiden oder auf der CPU halten. (c) Du tunst die Tiling-Flags von Hand.
-Das Repo enthält jetzt einen **hybriden ONNX-MLP-e2e**: `npu-trim` extrahiert die
-beiden Matmuls, der persistente Runner führt sie auf XDNA1 oder Strix Point npu4
-aus, und ReLU bleibt ausdrücklich auf der CPU. Das ist kein vollständiger
-ResNet-/Transformer-Graph in einem VMFB; ein solcher e2e wird nicht behauptet.
-
-**Gemessene Obergrenze auf dieser Kiste:** bf16-matmul **~220 GFLOP/s bei 1024³** (native
-Stärke), `i32` ~6 GFLOP/s (nicht der native Typ der AIE), kleine matmuls sind
-dispatch-overhead-gebunden. Gut für eine kleine Modellstufe bei geringem Tastverhältnis; **nicht**
-zum Servieren eines LLM.
-
----
-
-## Für Erbauer von lokaler KI / Agenten
-
-Die NPU ist **keine** Drop-in-Inferenz-Engine für irgendeine Agenten-Komponente. Aber die
-GEMM-/conv-Mathematik unter Embeddings, Klassifikatoren, Rerankern und Wake-Word-Modellen
-**ist** genau das, was die NPU ausführt — das sind also echte Engineering-Builds, keine
-Fantasien. Das wiederkehrende Muster: **dichte Schichten auf der NPU, der sequenzielle /
-Attention- / softmax-Kleber auf der CPU.**
-
-| Anwendung | Machbarkeit | Wie (konkreter Pfad) | Anmerkung |
-|---|---|---|---|
-| Wake-Word / Keyword-Spotting (dauerhaft an) | 🟡 baubar | Ein CNN/FC-KWS-Modell: Mel-Frontend auf CPU → kleiner conv2d-/FC-Klassifikator auf NPU pro ~80-ms-Frame → Schwellwert → Event auslösen. (Der Kopf von `openWakeWord` ist ein 3-schichtiges FC-ReLU-Netz — reines matmul.) | **Die mit Abstand beste Agenten-Passung.** Winzig, läuft ewig, perf/watt ist der ganze Sinn. Frames bündeln, um den ~hundert-µs-Dispatch zu amortisieren. |
-| RAG-Embeddings (MiniLM / bge-small / e5-small) | 🟡 baubar | Lowere die **matmul**-Blöcke des Encoders auf die NPU (bf16/i8); halte softmax/layernorm/Attention auf der CPU. Embeddings sind batchig & latenztolerant (indiziere einen Korpus einmal). | Die GEMMs *sind* der Kostenfaktor und *sind* unterstützt; du teilst den Graphen & validierst die Numerik. |
-| Bi-Encoder-Re-Ranking (Query×Doc-Scoring) | 🟡 baubar | Gebündeltes matmul vorberechneter Embeddings — nahe an einem reinen matmul, der mit Abstand besten Op der NPU. | Die sauberste Abbildung aller Agenten-Aufgaben. Cross-Encoder-Reranking braucht Attention → halte das auf der CPU. |
-| Intent-Klassifikation / Routing-Kopf | 🟡 baubar | Distilliertes MiniLM oder ein MLP über eingefrorenen Embeddings: Encoder-GEMMs + linearer Kopf als matmuls (bf16). | Kurze Sequenz, matmul-dominant → Dispatch-Overhead amortisiert sich. |
-| Kleine CNN-Wahrnehmung (UI-Element-/Screenshot-Klassifikator, OCR-Vorfilter) | 🟡 baubar | Einfacher `conv_2d_nhwc_hwcf`-Backbone (bf16, oder i8→i32) + matmul-Kopf auf NPU; resize/normalize auf CPU. ViT vermeiden (Attention-Wand). | Einfache conv ist verifiziert; **i8-*quantisierte* conv ist nur-compile**, also bevorzuge bf16 oder validiere i8 selbst. |
-| Whisper / Speech-to-Text für einen Sprachagenten | ⛔ (heute) ungeeignet | Nutze `whisper.cpp` auf der CPU oder der 780M (Vulkan). Der Encoder *könnte* ein Forschungs-NPU-Offload sein, aber es gibt kein End-to-End-Whisper-on-iree-amd-aie; der Decoder ist GEMV-/speichergebunden. | NPU-int8-Whisper-Builds zielen auf Windows/Vitis, nicht auf XDNA1+Linux. |
-| LLM-**Decode** / Token-Generierung | ⛔ ungeeignet | Nutze die **iGPU**: Ollama/llama.cpp Vulkan (~14 tok/s gemma-2B, ~5–6 tok/s 7–8B Q4). | Decode ist **speicherbandbreiten**-gebunden; der FLOPs/Watt-Vorteil der NPU hilft beim Flaschenhals nicht. Der klarste „nutze die iGPU"-Fall. |
-| LLM-**Prefill** (rechengebunden, „sollte" einer NPU passen) | 🟠 braucht XDNA2/Windows | Braucht fusioniertes Attention + RoPE + RMSNorm + softmax, gelowert für npu1 — nichts davon existiert. AMDs IRON `llama_3.2_1b` implementiert diese, zielt aber **nur** auf **AIE2P/XDNA2**. | „Rechengebunden" hilft nur, wenn die Ops lowerbar sind. Auf XDNA1 sind sie es nicht. |
-| „Zeig auf meine `.onnx`, auf NPU ausführen" | ⛔ nicht verfügbar | Der ONNX Runtime Vitis AI EP fällt bei Client-NPUs unter Linux auf die CPU zurück; dieser Build hat keinen Importer. Baue IREE mit `IREE_INPUT_ONNX/TORCH=ON` neu, um überhaupt zu *importieren*, und erwarte dann massive Op-Lücken. | Ein Neuaufbau von Grund auf, nicht schlüsselfertig. |
-
----
-
-## Für Gamer
-
-**Brutal ehrlich:** Ein Linux-Gamer auf einem 7840U **kann Spiele heute mit dieser NPU
-nicht schneller oder besser machen**, in keiner ausgelieferten Form. Drei harte Wände, keine reine
-NPU-Schwäche:
-
-1. **Die Proton-Sandbox.** Spiele sind Windows-`.exe` unter Proton/Wine. Die NPU ist
-   nur über Linux-native `amdxdna`-ioctls erreichbar (XRT XDNA SHIM + eine Linux-ELF-
-   Runtime). Es gibt **keinen Windows-seitigen `amdxdna`-Treiber innerhalb eines Proton-Prefix**,
-   also **kann ein Spiel die NPU nicht aufrufen**. Der einzige Pfad ist ein **separater Linux-nativer
-   Hilfsprozess außerhalb des Prefix**.
-2. **XDNA1 ist von jedem schlüsselfertigen Stack aufgegeben** (FastFlowLM/Lemonade/Ryzen AI SW
-   = XDNA2). Nur `iree-amd-aie` aus dem Quellcode läuft hier.
-3. **Niemand liefert Game-NPU-Offload** unter Linux (oder eigentlich Windows). **NPUs liefern
-   null FPS** in aktuellen Spielen.
-
-> **Der große Mythos: FSR ist KEINE NPU-Last.** FSR vor 4 ist analytisch (kein ML).
-> FSR4 / Redstone-Neural-Rendering läuft auf den **RDNA4-WMMA**-Einheiten der GPU und braucht
-> eine RX-9000-GPU — die Ryzen-AI-NPU wird nie genutzt. AMDs eigener Echtzeit-NPU-
-> Upscaler (REAPPEAR) ist **XDNA2, Windows, auf Video**, und AMD selbst nennt
-> In-Game-NPU-Upscaling eine *„Zukunftsrichtung."*
-
-| Anwendung | Machbarkeit | Wie (konkreter Pfad) | Anmerkung |
-|---|---|---|---|
-| Lokale Sprache / Push-to-Talk-STT als **Out-of-Process-Companion** | 🟡 baubar | Whisper-**Encoder** (GEMM-lastig), via iree-amd-aie in einem Linux-Daemon kompiliert: Mikrofon via PipeWire lesen → Text über einen lokalen Socket emittieren → Spiel/Overlay konsumiert ihn. | **Die eine realistische gaming-nahe NPU-Nutzung.** Außerhalb der Render-Schleife, tolerant gegenüber ~100–300 ms Latenz, nativ Linux (die Proton-Wand greift nicht). Den Encoder auf XDNA1 zu portieren ist der schwierige Teil. |
-| Neuronale NPC- / Gegner-KI (Intent, taktische Entscheidungen) | 🟡 baubar | Ein Linux-Companion-Dienst führt eine kleine Policy/MLP via iree-compile aus; das Spiel (Mod/Overlay) fragt sie über einen Socket ab. Nur rundenbasiert / im Sekundentakt. | IPC- + Dispatch-Latenz schließen 60-Hz-Per-Tick-Kampf aus. DIY-Mod-Muster, nichts liefert das aus. |
-| Prozedurale Inhalte (Texturen/Level) zur **Ladezeit** | 🟡 baubar | Offline / beim Level-Laden in einem nativen Linux-Prozess generieren; das Spiel lädt die Assets. Latenztolerant. | Umgeht sowohl die Proton-Wand als auch das Frame-Budget. Nur kleine/mittlere Netze. |
-| Offline-/Batch-ML-Upscaling von **Captures/Screenshots** (nicht live) | 🟡 baubar | Auf Disk capturen → kleiner ESRGAN-artiger conv-Stack, zu `.vmfb` kompiliert → mit `--device=amdxdna` ausführen. | Nur machbar, *weil* es offline ist. Der Vulkan-Pfad (Real-ESRGAN-ncnn) ist heute weitaus einfacher/schneller. |
-| Lokaler LLM-Co-Pilot **neben** (nicht im) Spiel | 🟡 baubar | Kleines quantisiertes Modell als nativer Linux-Dienst; Overlay/Discord-Bot konsumiert es; hält die 780M frei. | Bescheidene tok/s; Bring-up aus dem Quellcode, da FastFlowLM/Lemonade XDNA1 verweigern. |
-| In-Game-Neural-TTS für NPC-Zeilen | 🟠 braucht XDNA2/Windows | Architektonisch in Ordnung als Companion-Daemon, aber VITS-/Transformer-Vocoder sind auf XDNA1 weitgehend unimplementiert. | CPU-TTS ist heute einfacher. |
-| **In-Game**-ML-Super-Resolution / Upscaling pro Frame | ⛔ ungeeignet | Das Spiel erreicht `/dev/accel/accel0` unter Proton nicht; externes Capture→Upscale→Reinject sprengt das 16-ms-Budget; SR-conv-Kernels für XDNA1 sind ungeschrieben. | FSR4 = GPU; REAPPEAR = XDNA2/Windows. |
-| Frame-Generierung | ⛔ ungeeignet | Braucht Motion-Vektoren/Optical-Flow, gebunden an die Render-Pipeline (GPU). Kein Pipeline-Zugriff unter Proton; Per-Frame-Round-Trips erhöhen die Latenz. | Kein Frame-Gen-Produkt nutzt eine NPU. |
-| Laufzeit-Animation / Neural IK | ⛔ ungeeignet | Enge Per-Frame-Engine-Kopplung + Proton-Sandbox = kein Laufzeitpfad. Nur Offline-Tooling. | |
-| Echtzeit-External-Capture-Upscaler über die NPU | ⛔ ungeeignet | Die einzigen funktionierenden Echtzeit-Upscaler (Anime4K, waifu2x/Real-ESRGAN/RIFE auf ncnn-vulkan) sind GPU/Vulkan mit **keinem XDNA-Backend** und würden mit der 780M konkurrieren. | Du würdest neue MLIR-AIE-conv-Kernels schreiben *und* trotzdem an der Latenz verlieren. |
-| Anti-Cheat via On-Device-NPU-KI | ⛔ ungeeignet | Irrelevant: Kernel-Anti-Cheat ist nur Windows; EAC/BattlEye auf Proton sind User-Mode-Policy-Entscheidungen. Kein Anti-Cheat nutzt eine NPU. | |
-
----
-
-## Für App-Entwickler (stromsparend, dauerhaft an)
-
-Hier zahlt sich der perf-per-watt-Vorteil der NPU tatsächlich aus: eine **gleichmäßige,
-geringes-Tastverhältnis**-Last, deren schwerer Kern **conv- oder matmul-förmig** ist, eingebunden
-in die standardmäßige Linux-Media-Verrohrung. Die ehrliche Aufteilung ist **conv-/matmul-förmig vs.
-recurrent**, nicht Audio vs. Vision.
-
-**Integrationsflächen (alle Standard-Linux):**
-- **Audio** → PipeWire `pw_filter` / `module-filter-chain` (derselbe Hook,
-  den DeepFilterNets LADSPA-Plugin nutzt) → ein virtuelles Mikrofon bereitstellen.
-- **Kamera** → Capture via GStreamer/v4l2 → NPU ausführen → in ein **v4l2loopback**
-  `/dev/videoN` (`exclusive_caps=1`) schreiben, das Zoom/Chrome/OBS lesen.
-- **Allgemeiner Daemon** → die IREE-Runtime-C-API (`amdxdna`-HAL-Device erstellen → `.vmfb`
-  laden → aufrufen), modelliert nach `samples/simple_embedding/simple_embedding.c`.
-
-| Anwendung | Machbarkeit | Wie (konkreter Pfad) | Anmerkung |
-|---|---|---|---|
-| Webcam-Hintergrundunschärfe / virtueller Hintergrund | 🟡 baubar | MediaPipe Selfie Segmentation (MobileNetV3-Klasse conv-Encoder-Decoder, 256×256). Den conv-Backbone (bf16) auf NPU ausführen; CPU-resize + Composite; raus zu v4l2loopback. | Reine conv → bildet auf unterstütztes `conv_2d_nhwc_hwcf` ab. Nicht-128-fache Shapes brauchen Tiling-Arbeit; depthwise-Stufen sind 🟡 (fragil). |
-| Mikrofon-Rauschunterdrückung als virtuelles Mikrofon | 🟡 baubar | **DeepFilterNet** (conv-Encoder-Decoder), **nicht** das klassische RNNoise. STFT/ERB + Gating auf der CPU halten; conv-Blöcke (bf16) auf die NPU auslagern; PipeWire-`pw_filter`-Callback. Frames bündeln. | Der Gewinn ist **Akku**, nicht Latenz — die CPU-Version ist bereits echtzeitfähig. Harter <10-ms-Deadline + Dispatch-Overhead ist die Herausforderung. |
-| On-Device-Bildklassifikation / Auto-Tagging | 🟡 baubar | MobileNetV3 / EfficientNet-Lite: conv-Backbone (`conv_2d_nhwc_hwcf`) + matmul-Kopf auf NPU; über deine Bibliothek bei geringem Tastverhältnis batchen; resize/normalize auf CPU. | Beste Vision-Passung **in bf16**. Die i8-*quantisierte* conv + Requant-Epilog ist **nur-compile in CI** — validiere sie selbst, bevor du dich auf i8 verlässt. |
-| Embeddings für semantische Bildsuche (MobileCLIP-S0-Image-Tower) | 🟡 baubar | conv-Backbone + finales Projektions-matmul → Vektoren fester Länge via C-API; in sqlite/faiss auf der CPU speichern. Einmal indizieren, günstig abfragen. | Idealer Hintergrundjob mit geringem Tastverhältnis. Text-**Transformer**-Tower brauchen Attention → off-device vorberechnen oder auf der CPU halten. |
-| On-Device-OCR (Screenshots/Scans) | 🟡 baubar | CRNN/PaddleOCR-artig: conv-Feature-Extraktor auf NPU; CTC-/Sequenz-Decode + jegliches BiLSTM auf CPU. Textzeilen-Crops batchen. | Der recurrent Recognizer **kann nicht** auf der NPU leben (softmax/Attention gesperrt). |
-| Object-Detection-Backbone (Auto-Framing-Smartkamera) | 🟡 baubar | NanoDet/YOLO-nano: conv-Backbone+Neck auf NPU; Anchor-Decode + NMS auf CPU; raus zu v4l2loopback. | NMS-/Anchor-Mathematik ist steuerungslastig → CPU. Ungerade Feature-Map-Shapes brauchen Tiling-Tuning. |
-| Anwesenheits- / Blickerkennung zum Energiesparen | 🟡 baubar | Winziges Gesichts-/Blick-CNN bei 2–5 fps: conv-Detektor auf NPU; bei „wegschauend N s" → CPU-Aktion (DPMS-Dimmen / Sperren / Pausieren). | Niedrige fps **verbergen den Dispatch-Overhead** → einer der nachsichtigeren Builds; perf/watt ist bei geringem Tastverhältnis am stärksten. |
-| Laufzeit-Animation / Neural IK innerhalb einer Engine | ⛔ ungeeignet | Per-Frame-Engine-Kopplung; nur als Offline-Content-Tooling machbar. | |
-| Klassisches **RNNoise** (GRU) oder **Silero VAD** als NPU-Last | ⛔ ungeeignet | Auf der CPU halten (RNNoise läuft bereits ~60× echtzeit). Für NPU-Sprachverbesserung wechsle zum **conv-basierten DeepFilterNet**. | GRU/LSTM sind inhärent sequenziell (Zeitschritt hängt vom vorigen Hidden State ab); Dispatch-Overhead dominiert; es existiert kein recurrent Lowering. |
-
----
-
-## Für Lernende
-
-Die NPU ist ein echtes, programmierbares Spatial-Dataflow-Gerät, für das du kompilieren und
-dem du **bei der Ausführung zuschauen** kannst — ein hervorragender Weg, um AIE / MLIR / Dataflow ohne
-Cloud-Hardware zu lernen.
-
-| Anwendung | Machbarkeit | Wie (konkreter Pfad) | Anmerkung |
-|---|---|---|---|
-| AIE / Spatial-Dataflow lernen, indem man ein funktionierendes matmul mutiert | ✅ funktioniert heute | Starte von [`scripts/run-matmul.sh`](../scripts/run-matmul.sh) und [`examples/matmul_bf16.mlir`](../examples/matmul_bf16.mlir); ändere Shapes/dtypes; neu kompilieren; auf `--device=amdxdna` ausführen. | Die eine empirisch verifizierte Stufe auf dieser Kiste. |
-| matmul/conv über Shapes & dtypes benchmarken | ✅ funktioniert heute | `BENCH=1 ./scripts/run-matmul.sh bf16 1024 1024 1024`; i32 vs. bf16 vergleichen, dispatch-gebunden vs. rechengebunden beobachten. | Lehrt, warum bf16 nativ ist und kleine Kernels overhead-gebunden sind. |
-| Eigenen conv2d-/fused-elementweise-Kernel verfassen | 🟡 baubar | Schreibe `linalg.conv_2d_nhwc_hwcf` oder matmul+generic-MLIR; kompiliere `conv-decompose`/`pack-peel`; verifiziere gegen eine CPU-Referenz. | Einfache conv ist verifiziert; quantisierte conv/softmax sind experimentell. |
-| Ein winziges End-to-End-Modell bauen (quantisiertes MLP / 2–3-schichtiges CNN) | 🟡 baubar | Verfasse jede Schicht als unterstütztes linalg-MLIR (nach dem Vorbild von `three_matmuls.mlir`); kompiliere zu einer `.vmfb`; führe den Dispatch-Graphen auf der NPU aus. | Kein `.onnx`-Import in diesem Build; nicht unterstützte Ops sind **Compile-Fehler**, keine Fallbacks. |
-| Ein echtes ONNX-/PyTorch-Modell importieren und die NPU ansteuern | 🟠 braucht einen Neuaufbau (+ massive Op-Lücken) | Baue IREE mit `IREE_INPUT_TORCH/ONNX=ON` + Python-Bindings neu, um `iree-import-onnx` zu bekommen; erwarte, dass Attention-/layernorm-/softmax-/Embedding-/dynamische-Shape-Ops **nicht für AIE kompilieren**. | Frontends sind in diesem Build absichtlich aus; importieren ≠ ausführen. |
-| Upstream XDNA1-auf-Linux-Abdeckung beitragen | ✅ funktioniert heute | Lass Ergebnisse auf deiner eigenen XDNA1-Kiste laufen; reiche Hardware-Reports / Neu-Op-Tests ein. Phoenix-CI existiert, aber die Community-Abdeckung ist dünn. | Jedes Ergebnis hilft; siehe [`CONTRIBUTING.md`](../CONTRIBUTING.md). |
-| Ein LLM/Whisper ausführen, um „NPU-KI zu lernen" | ⛔ ungeeignet | Falsches Werkzeug — nutze die 780M-iGPU für das Modell und die NPU für *Primitive*. | Beginne deine NPU-Reise nicht damit, einen Transformer servieren zu wollen. |
-
----
-
-## Bau dein eigenes NPU-Primitiv (Kochbuch)
-
-Die generische Pipeline, um die schwere Stufe eines Modells in ein NPU-Primitiv zu verwandeln, das du
-in einen Daemon einbettest:
-
-**1. Wähle die schwere, parallele Stufe des Modells.** Sie muss **matmul- / einfach-conv- /
-fused-elementweise**-förmig sein. Recurrent-(GRU/LSTM-) und Attention-/softmax-Stufen bleiben
-auf der CPU. Halte Vor-/Nachverarbeitung (STFT, resize, NMS, Tokenisierung) auf der CPU.
-
-**2. Drücke sie als linalg-Level-MLIR aus.** Starte von
-[`examples/matmul_bf16.mlir`](../examples/matmul_bf16.mlir) (matmul) oder einer
-`conv_2d_nhwc_hwcf`-Vorlage. **Bevorzuge `bf16`** (den AIE-nativen ~220-GFLOP/s-
-Typ). i8-Quantisierung funktioniert für matmul; i8-*quantisierte conv* und der i8-Requant-
-Epilog sind experimentell, also **verifiziere sie gegen eine CPU-Referenz, bevor du dich auf
-sie verlässt**. (Dieser Build kann `.onnx`/PyTorch nicht importieren — füttere ihn mit MLIR.)
-
-**3. Kompiliere für die NPU.** Der verifizierte Flag-Satz
-([`scripts/run-matmul.sh`](../scripts/run-matmul.sh), [`docs/GOTCHAS.de.md`](GOTCHAS.de.md)):
-
-```bash
-iree-compile \
-  --iree-hal-target-backends=amd-aie \
-  --iree-amdaie-target-device=npu1_4col \
-  --iree-amdaie-device-hal=amdxdna \
-  --iree-amdaie-lower-to-aie-pipeline=air        `# bf16 matmul; use objectFifo for i8/conv` \
-  --iree-amdaie-tile-pipeline=pack-peel          `# matmul; use conv-decompose for conv` \
-  --iree-hal-memoization=false \
-  --iree-hal-indirect-command-buffers=false \
-  model.mlir -o model.vmfb
+```text
+ONNX ── gepinnter Importer ──▶ npu-trim ──▶ zielmarkierte Matmul/Conv-VMFBs
+                                                │
+                      anwendungseigene Gewichte, Layouts und Ablaufplanung
+                                                │
+                           NPU-Kernels + expliziter CPU-Glue/Fallback
 ```
 
-**4. Verifiziere mit einer bekannten Eingabe.**
+## Ein lokales LLM-System kann alle drei Prozessoren nutzen
 
-```bash
-iree-run-module --device=amdxdna --module=model.vmfb \
-  --amdxdna_n_core_rows=4 --amdxdna_n_core_cols=4   # cols=4 NOT 5, or ert state 8 timeout
+Ein NPU-Beitrag ist auch dann nützlich, wenn die NPU nicht das ganze LLM
+bereitstellt:
+
+```text
+Mikrofon / Kamera / Dokumente / UI-Ereignisse
+                    │
+                    ▼
+      NPU: Always-on-Trigger, Feature-Block,
+           Linear/Fused-Block, Klassifikation oder Scoring
+                    │
+                    ▼
+      CPU: I/O, Tokenisierung, Top-k, Werkzeuge, Richtlinien,
+           nicht unterstützte Ops und vertrauenswürdiger Fallback
+                    │
+                    ▼
+      iGPU: etablierte quantisierte Local-LLM-Runtime
+            für Prefill und Token-Erzeugung
 ```
 
-**5. Integriere in einen Daemon / Media-Graphen.** Binde die `.vmfb` ein über:
-- **CLI** (`iree-run-module`) für Batch-Jobs / schnelle Skripte; oder
-- **IREE-Runtime-C-API** — das `amdxdna`-HAL-Device erstellen, das Modul laden,
-  die Funktion auflösen, aufrufen (nach dem Vorbild von `simple_embedding.c`). **Bündle Frames
-  pro Dispatch**, um den ~hundert-µs-Submit-Overhead zu amortisieren, und halte einen **CPU-
-  Fallback-Pfad** bereit.
-- Hänge es dann an **PipeWire** (`pw_filter` / `module-filter-chain` → virtuelles Mikrofon)
-  oder **GStreamer + v4l2loopback** (→ virtuelle Kamera), oder einfach einen Socket.
+Wenn offene Attention-, Normalisierungs- und Quantisierungskernels reifen, kann
+ein gemessener Block von CPU/iGPU auf die NPU wandern, ohne die Anwendung
+wegzuwerfen. Zwei veröffentlichte Ergebnisse zeigen, warum dies ein echter
+Forschungsweg ist:
 
-> Repo-Skripte zum Aufbauen: [`check-npu.sh`](../scripts/check-npu.sh) (lebt sie?),
-> [`enable-npu.sh`](../scripts/enable-npu.sh) (Render-Gruppe / memlock /
-> XRT), [`build.sh`](../scripts/build.sh) (der Build aus dem Quellcode mit allen
-> Workarounds), [`run-matmul.sh`](../scripts/run-matmul.sh) (das Compile+Run-
-> Rezept). Der Host-Compiler muss **gcc** sein (clang21 segfaultet beim Linken von
-> `libIREECompiler.so`).
+- Rösti und Franz legten GEMMs des **GPT-2-124M-Fine-Tunings** auf eine
+  Phoenix-NPU der ersten Generation, während die CPU den Rest behielt. Sie
+  berichten über mehr als **2,8×** für die ausgelagerten Matrixmultiplikationen,
+  **1,7×** Netz- und **1,2×** Akku-End-to-End-Durchsatz sowie **1,4×**
+  Energieeffizienz im Akkubetrieb.[^phoenix-gpt2] Das sind Autorenwerte, keine
+  Messungen dieses Repos.
+- STEEL berichtet im Mittel **9,6× geringere XDNA1-Latenz gegenüber DATO**, der
+  zitierten früheren XDNA1-Attention-Basis. Davon getrennt meldet die
+  HX-370/XDNA2-Messung **9,17×** bzw. **1,75×** weniger Energie als ihre CPU-
+  und GPU-Baselines sowie **22,8×** gegenüber ihrer schichtweisen
+  XDNA2-Implementierung.[^steel] XDNA1-Latenz und XDNA2-Energie sind getrennte
+  Experimente.
 
----
+## Dinge, die du ausführen, ersetzen oder erweitern kannst
 
-## Wo anfangen (nach Zielgruppe)
+| Ausgangspunkt | Was heute real ist | Nützlicher nächster Schritt |
+|---|---|---|
+| [`local-rag-sidecar`](../examples/local-rag-sidecar/) | **Repo-Hardware (`npu4`):** deterministisches CPU-Hashing → persistente NPU-bf16-Scorematrix 256×256 → CPU-Top-k → optionaler LLM-Endpunkt, standardmäßig auf die literalen Loopback-Hosts `127.0.0.1` oder `::1` beschränkt; entfernte Endpunkte erfordern die explizite Aktivierung mit `--allow-remote`. Alle 65.536 Ausgaben werden geprüft. | Hashing durch lizenzierte gelernte Embeddings oder eine Projektion ersetzen, Anfragen bündeln und auf XDNA1 wiederholen. Für eine kleine Einzelanfrage ist ein CPU-Dot-Product wahrscheinlich schneller; das Beispiel belegt Integration und Korrektheit, keinen universellen Speedup. |
+| [`wake-word`](../examples/wake-word/) | **Vorlage:** echtes CPU-Log-Mel und drei persistente NPU-Dense-Dispatches; die mitgelieferten Gewichte sind ein beispielhafter Matched Filter. | Reale Wake-Word-/Intent-Gewichte trainieren und lizenzieren, Audio und Fehlalarme testen und damit einen lokalen iGPU/CPU-Assistenten wecken. |
+| [`onnx-mlp`](../examples/onnx-mlp/) | **Vorlage:** tatsächlich importierter Hybrid-Forward-Pass mit zwei Matmuls und CPU-Prüfung pro Dispatch sowie Ende-zu-Ende. | Einen trainierten Intent-, Routing-, Safety- oder Projektionskopf einsetzen und formspezifische Kernels plus Orakel erhalten. |
+| [`npu-camera`](../examples/npu-camera/) | **Anwendungs-Plumbing:** GStreamer → persistente NPU → `v4l2loopback`; die NPU-Demooperation ist ein zweipassiger Box-Blur, keine Segmentierung. | Eine Stufe durch einen trainierten, unterstützten Vision-Block ersetzen; Resize, Compositing und Fallback auf CPU belassen. |
+| [`npu-runner`](../tools/npu-runner/) | **Repo-Hardware:** VMFB einmal laden und aus C oder Python wiederholt aufrufen, mit vollständiger Ausgabekontrolle. | Lokalen Daemon für gebündeltes Scoring, Sensorklassifikation oder einen wiederverwendbaren Model-Sidecar bauen. |
+| [`mlir-aie/relu_add`](../examples/mlir-aie/relu_add/) | **Direct-Kernel-Labor:** einsehbarer Spatial-Code und Mehrspaltenausführung. | Einen AMD-IRON-AIE2-Operator auf Phoenix reproduzieren und Platzierung, Transfers, CPU-Golden und erste fehlschlagende Form veröffentlichen. |
+| [`check-w4a16-compile.sh`](../scripts/check-w4a16-compile.sh) | **Nur kompiliert:** gepinnter externer W4A16-Frontend-Probe. | Lowering, Linken, Weight Packing, NPU-Ausführung und quantisierungsbewusste Korrektheit abschließen, bevor Leistung beansprucht wird. |
 
-- **Agenten-Erbauer:** Baue ein **Wake-Word- / KWS**-Primitiv (conv/FC, dauerhaft an)
-  oder einen **Bi-Encoder-Reranker** (gebündeltes matmul) — die saubersten NPU-Passungen. Führe das
-  LLM selbst auf der 780M-iGPU aus.
-- **Gamer:** Der einzige realistische Build ist ein **Out-of-Process-Sprach-(STT)-Companion-
-  Daemon** über einen Socket. Behandle die NPU als Side-Car, nie innerhalb der Render-Schleife.
-- **App-Entwickler:** Beginne mit **Hintergrundunschärfe** (Kamera → v4l2loopback) oder einem
-  **Foto-Klassifikator** in **bf16** — conv-förmig, latenztolerant, perf/watt gewinnt.
-- **Lernende:** Mutiere [`run-matmul.sh`](../scripts/run-matmul.sh), benchmarke
-  bf16 vs. i32, verfasse dann deinen eigenen conv2d-Kernel; steige auf zu einem winzigen MLP-Graphen.
+## Weitere Anwendungsrichtungen
 
-## 🔇 Gemessen: Die NPU verliert gegen die CPU bei Audio
+| Bedarf | NPU-großes Experiment | Explizit woanders belassen |
+|---|---|---|
+| Privater lokaler Assistent | Wake Word, Intent/Safety-Head, gebündeltes Retrieval-Scoring | CPU-Orchestrierung; CPU/iGPU-Generierung |
+| Persönliche Suche | Projektion und Query×Dokument-Scorematrix | Parsing, Speicherung, Top-k und finale Generierung |
+| Barrierefreiheit | akustischer, Präsenz-, Gesten- oder UI-Ereignisklassifikator | Erfassung und Anwendungsrichtlinie |
+| Kamera/Privatsphäre | unterstützte Conv- oder Linear-Stufe | Capture, Resize, Compositing, `v4l2loopback` |
+| Audio | gebündelter Conv/Linear-Feature- oder Denoising-Block | PipeWire, STFT und harter Echtzeit-Fallback |
+| Spiele | nativer Linux-Companion für Stimme, Intent oder Offline-Inhalte | Proton-Spiel-/Renderloop und framekritische Arbeit |
+| Compilerforschung | Fusion, Tiling, Packet Flow, quantisierte Kernels | CPU-Referenzen und reproduzierbare Harnesses |
 
-Wir haben es auf einem 7840U gemessen. Ein **ganzer CPU-Denoiser-Frame (8 Schichten) benötigt
-0.063 ms**, ein **einzelner NPU-Dispatch benötigt 3.8 ms** — er ist damit **~60× langsamer als der
-ganze CPU-Frame**. Bei einer naiven Zuordnung von einem Dispatch pro Schicht würde ein Frame mit acht
-Schichten **8 × 3.8 ms = 30.4 ms** benötigen — **~480× langsamer als der CPU-Frame** und damit
-über dem 10 ms-Echtzeit-Budget. Audio-Frames sind winzig,
-daher ist die Latenz **dispatch-overhead-gebunden** und der Durchsatzvorteil der NPU greift
-nie; RNNoise (GRU) hat überhaupt kein NPU-Lowering. **Nutze die CPU** für Echtzeit-
-Rauschunterdrückung — z. B. RNNoise über ein virtuelles Mikrofon mit PipeWire-`module-filter-chain`
-(`librnnoise_ladspa.so`, Label `noise_suppressor_mono`, als
-`Audio/Source` bereitgestellt via `playback.props`). Behalte die NPU für Vision/matmul; das ist *warum*
-die Audio-Zeilen oben auf der CPU bleiben.
+Sachliche Grenzen bleiben wichtig. Hier existiert kein ausgelieferter Pfad für
+mehr FPS, Frame Generation oder Upscaling im Renderloop; unter Proton ist ein
+separater nativer Linux-Companion die praktikable Experimentgrenze. Klassische
+GRU/LSTM-Workloads benötigen eigenes Lowering oder bleiben auf der CPU.
+Beliebige Transformer-/Whisper-/Vision-Graphen sind für das gepinnte Backend
+keine Gesamtmodell-Drop-ins. Das sind zu erforschende Schnittstellen, keine
+Gründe, das Gerät ungenutzt zu lassen.
 
-## Ehrliche „lohnt sich auf XDNA1+Linux noch nicht"-Liste
+## Leiter für reproduzierbare Experimente
 
-- **Irgendein LLM / Whisper / Stable Diffusion auf der NPU servieren.** Nutze die iGPU, oder
-  Windows/XDNA2.
-- **LLM-Prefill *oder* -Decode auf der NPU** — Prefill braucht Attention (fehlt),
-  Decode ist bandbreitengebunden (iGPU gewinnt).
-- **Alles mit Attention/Transformern als NPU-Dispatch** — keine Attention-Op,
-  softmax-e2e deaktiviert (iree#21633).
-- **Beliebige `.onnx`/PyTorch importieren und „einfach ausführen"** — kein Importer in
-  diesem Build; nicht unterstützte Ops sind Compile-Fehler, keine Fallbacks.
-- **In-Game- / Per-Frame-Upscaling oder Frame-Gen** — Proton-Sandbox + Latenz +
-  FSR4-ist-GPU. Passiert hier nicht.
-- **GRU/LSTM-Modelle (klassisches RNNoise, Silero VAD) auf der NPU** — sequenziell,
-  kein recurrent Lowering; auf der CPU halten.
-- **Sich auf i8-quantisierte conv oder den i8-Requant-Epilog verlassen**, ohne es selbst
-  zu verifizieren — das sind heute nur-compile-/verwaiste Fixtures in CI.
+Beginne mit strikter Geräte- und Korrektheitsprüfung:
 
----
+```bash
+./scripts/check-npu.sh --strict
+./scripts/run-matmul.sh bf16 512 512 512
+```
 
-*Vertrauensgrad-Legende: ✅ funktioniert heute (auf dieser Kiste verifiziert) · 🟡 baubar /
-experimentell (echtes Engineering, unterstützte Ops) · 🟠 braucht XDNA2 oder Windows · ⛔
-ungeeignet für eine NPU. Verifiziert auf einem Ryzen 7 PRO 7840U (Phoenix/XDNA1), Ubuntu
-26.04, Kernel 7.0, XRT 2.21, `iree-amd-aie` HEAD `fddfec1b`, am 2026-06-22.
-`iree-amd-aie` ist in einer frühen Phase und bewegt sich schnell — Flags und Op-Abdeckung driften.*
+Wähle anschließend eine bestehende Anwendungsnaht:
+
+```bash
+./examples/local-rag-sidecar/run.sh --cpu-only --selftest
+./examples/local-rag-sidecar/run.sh --selftest       # unterstützte Live-NPU
+~/src/iree-aie-venv/bin/python tools/npu-trim/npu_trim.py model.onnx
+```
+
+Veröffentliche für jede Erweiterung Geräteidentität, exakten Commit/Lock,
+Modell- und Datenlizenz, Formen und Präzision, vollständige Ausgabetoleranz,
+Rohlogs, Latenz und—erst nach der Messung—Systemenergie. Halte den CPU-Fallback
+bereit. Auch ein minimaler Fehler mit reproduzierbarer Eingabe ist wertvolle
+offene Forschung.
+
+## Wo es weitergeht
+
+- Mission, Evidenzvertrag und Beitragsleiter:
+  [Open NPU Lab](OPEN-NPU-LAB.md)
+- Primärpublikationen, Upstream-Code und Folgefragen:
+  [Research branches](RESEARCH.md)
+- Generationsspezifische Ziele und aktuelle XDNA2-Belege:
+  [XDNA2-Leitfaden](XDNA2.de.md)
+- Längere Transformer-Meilensteine:
+  [LLM roadmap](LLM-ROADMAP.md)
+
+Das Ziel ist nicht eine einzige privilegierte Demo. Es sind viele einsehbare
+Experimente, mit denen Besitzer, Lernende und Forschende eine NPU weiterverwenden,
+statt sie zu vergessen. Nimm den Quellcode, ändere ihn und mache dein Ergebnis
+zum Ausgangspunkt für andere.
+
+## Primärquellen
+
+[^iree-amd-aie]: nod.ai/AMD, [`iree-amd-aie`](https://github.com/nod-ai/iree-amd-aie). Der Repo-Lock ist `fddfec1be6ceefbdb890079d957947dfa1fe0848`; dieser Abschnitt beschreibt dieses Backend, nicht jeden XDNA-Compilerpfad.
+[^iron-phoenix]: AMD, [`IRON` am Commit `cdc48e93`](https://github.com/amd/IRON/tree/cdc48e93fd2c8776105780790c46ba4bca1bc40e) und [Phoenix-Extensive-Hardwareworkflow 31876069460](https://github.com/amd/IRON/actions/runs/31876069460), 2026-08-15: Bei den standardmäßigen fünf Iterationen entsprechen 2.105 bestandene und 45 übersprungene Fallläufe 421 verschiedenen bestandenen Konfigurationen und 9 verschiedenen Skips. Upstream-CI bewegt sich; beim Reproduzieren den Commit pinnen.
+[^phoenix-gpt2]: A. Rösti und M. Franz, [„Unlocking the AMD Neural Processing Unit for ML Training on the Client Using Bare-Metal-Programming Tools“](https://arxiv.org/abs/2504.03083), FCCM 2025. Phoenix der ersten Generation, Ryzen 9 7940HS, hybrides GPT-2-124M-Fine-Tuning.
+[^steel]: V. J. B. Jung et al., [„STEEL: Sparsity-Aware Fused Attention for Energy-Efficient Long-Sequence Inference on AMD's XDNA NPU“](https://arxiv.org/abs/2607.09385), IEEE COINS 2026. Das Paper nennt [`amd/IRON`](https://github.com/amd/IRON) als Open-Source-Implementierungspfad.

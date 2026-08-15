@@ -15,14 +15,18 @@ NPU compute on Linux. It preserves the original XDNA1/Phoenix from-source path
 and now carries the same detect → build → verify → persistent-runner contract to
 Strix Point XDNA2 (`RyzenAI-npu4`).
 
-> **Why this repo exists.** Almost every "the Ryzen AI NPU finally works on Linux"
-> article in 2026 is about **XDNA2** (Strix/Krackan). The first-gen **XDNA1**
-> chips in Ryzen 7040/8040 laptops (e.g. the 7840U) are *explicitly excluded* by
-> the turnkey stacks — AMD's Ryzen AI Software for Linux, ONNX Runtime's Vitis AI
-> EP, Lemonade/FastFlowLM. On XDNA1+Linux the NPU is powered on and enumerated by
-> the in-tree `amdxdna` driver, but **no shipped runtime will execute a model on
-> it.** The one open path that *does* target XDNA1 is `iree-amd-aie` — built from
-> source. This repo is the verified, gotcha-by-gotcha map of that path.
+> **Why this repo exists.** First-generation **XDNA1** silicon in Ryzen 7040/8040
+> laptops—including the 7840U—can be driver-visible yet left idle by current
+> turnkey Linux products. As of 2026-08-15, AMD's official Linux support page
+> lists STX/KRK, not Phoenix.[^amd-linux-support] That product boundary does not
+> make the device useless. There are now **two open lower-level routes**:
+> `iree-amd-aie`, which this repo pins and packages into a reproducible IREE path,
+> and the direct-kernel [`Xilinx/mlir-aie`](https://github.com/Xilinx/mlir-aie)
+> stack, whose IRON Python API/compiler track this repo pins at 1.4.1. The newer
+> [`amd/IRON`](https://github.com/amd/IRON) operator/application library is a
+> **separate project built on MLIR-AIE language bindings**, not a rename of
+> `Xilinx/mlir-aie`. This repo provides CPU-checked paths and explicit evidence
+> boundaries—not a claim of turnkey whole-model serving.
 
 > 🆕 **On XDNA2 Strix Point (`RyzenAI-npu4`)?** The second generation flipped the landscape:
 > turnkey LLM inference now exists on Linux (FastFlowLM/Lemonade), Ubuntu 26.04
@@ -45,12 +49,20 @@ shared ground for **many different LLMs and local AI systems**: private agents,
 accessibility tools, multilingual models, low-power services, new quantization
 ideas, and applications we have not imagined.
 
+**Anyone may use, copy, modify, fork, publish, redistribute, sublicense, teach
+with, or use this work commercially** under the MIT License. Keep the required
+copyright and license notice; third-party code and model assets retain their own
+licenses. No separate permission is needed, and contributions back are welcome
+but not required.
+
 This is a foundation, not a claim that an arbitrary LLM already runs end to end.
 It makes the foundation concrete: strict device detection, pinned builds,
 CPU-reference correctness, persistent C/Python invocation, working examples,
 and public failure boundaries. The measure of success is not ownership of one
-model; it is other people being able to build on the work. See the technical
-[open LLM roadmap](docs/LLM-ROADMAP.md) and [contribution guide](CONTRIBUTING.md).
+model; it is other people being able to build on the work. Enter the
+[Open NPU Lab](docs/OPEN-NPU-LAB.md), follow each claim into the primary-source
+[research ledger](docs/RESEARCH.md), then choose a milestone from the
+[open LLM roadmap](docs/LLM-ROADMAP.md) or [contribution guide](CONTRIBUTING.md).
 
 ## 🎬 Demos
 
@@ -64,15 +76,17 @@ on all 8 columns through both XRT and HRX:
 
 ### XDNA1 / Phoenix — original verified demos
 
-**End-to-end — an ONNX MLP on the NPU** (matmuls on the NPU, `ReLU` on the CPU; matches the CPU reference to ~0.3%):
+**Hybrid mechanics demo — a generated ONNX MLP** (matmuls on the NPU, `ReLU`
+on the CPU; generated weights, not a trained application; matches its CPU
+reference to ~0.3%):
 
 ![onnx-mlp end-to-end demo](docs/media/onnx-mlp.gif)
 
 | | |
 |:--:|:--:|
-| diagnose → matmul → benchmark → Python, **on the NPU** | NPU 2D-blur on three `videotestsrc` patterns → `/dev/video10` |
+| diagnose → matmul → benchmark → Python, **on the NPU** | non-AI NPU 2D box blur on three `videotestsrc` patterns → `/dev/video10` |
 | ![npu-runner demo](docs/media/npu-runner.gif) | ![npu-camera demo](docs/media/npu-camera.gif) |
-| wake-word KWS — 3 dense layers on the NPU (target fires, noise stays silent) | bf16 is the NPU's native strength — up to **220 GFLOP/s** |
+| wake-word pipeline — 3 dense NPU layers with **illustrative, untrained weights** | bf16 is the NPU's native strength — up to **220 GFLOP/s** |
 | ![wake-word demo](docs/media/wake-word.gif) | ![benchmark demo](docs/media/benchmark.gif) |
 | bring a real `.onnx` → NPU-targetable MLIR (hybrid import; the from-source amd-aie codegen's op coverage is the frontier) | extract the matmuls **and convs** that **do** compile to the NPU — `npu-trim` screens ops & emits clean kernels |
 | ![onnx-import demo](docs/media/onnx-import.gif) | ![npu-trim demo](docs/media/npu-trim.gif) |
@@ -153,15 +167,17 @@ less docs/SUPPORT.md
 - [`tools/npu-trim/`](tools/npu-trim/) — **screen an imported `.onnx` and extract the matmuls and convs that actually compile to the NPU** (classify ops, emit clean bf16 kernels, test-compile; the rest stays on CPU).
 - [`tools/npu-runner/`](tools/npu-runner/) — **persistent NPU caller** (IREE C API + `libnpu.so`/ctypes): load a `.vmfb` once, invoke many times; the historical XDNA1 measurement was **~3.7 ms vs ~41 ms** for per-call `iree-run-module`.
 - [`examples/matmul_i32.mlir`](examples/matmul_i32.mlir) · [`examples/matmul_bf16.mlir`](examples/matmul_bf16.mlir) — the minimal verified NPU matmuls.
-- [`examples/wake-word/`](examples/wake-word/) — **a persistent wake-word detector** on XDNA1/npu4 (`./run.sh --selftest`: target separates from noise without per-layer subprocesses).
-- [`examples/onnx-mlp/`](examples/onnx-mlp/) — **end to end on XDNA1/npu4**: npu-trim extracts two matmuls → one persistent runner executes both → ReLU stays explicit on CPU → each dispatch and the model are checked against bf16 CPU references.
-- [`examples/npu-camera/`](examples/npu-camera/) — **always-on XDNA1/npu4 video filter → virtual camera** (`/dev/video10`): GStreamer → two persistent NPU dispatches per frame → Zoom/Meet/OBS. The original XDNA1 demo measured 30 fps; npu4 is correctness-tested separately.
+- [`examples/local-rag-sidecar/`](examples/local-rag-sidecar/) — **a real NPU-in-the-RAG-loop integration**: CPU chunk/hash → persistent NPU score matrix → CPU top-k → optional local LLM. Its hashed features are not trained embeddings, one small query is likely faster on CPU, and current-lock XDNA1 hardware verification remains pending; the live current-lock result is XDNA2.
+- [`examples/wake-word/`](examples/wake-word/) — **persistent wake-word pipeline mechanics** on XDNA1/npu4. The self-test dispatches three dense layers, but its illustrative matched-filter weights are not a trained vocabulary.
+- [`examples/onnx-mlp/`](examples/onnx-mlp/) — **a real hybrid forward path with a generated model**: two NPU matmuls + explicit CPU ReLU, each checked against bf16 CPU references; it is not a trained application or arbitrary ONNX runtime.
+- [`examples/npu-camera/`](examples/npu-camera/) — **always-on NPU video plumbing → virtual camera** (`/dev/video10`): GStreamer → two persistent dispatches per frame. The NPU operation is a non-AI box blur; the original XDNA1 plumbing demo measured 30 fps, while npu4's processing core is correctness-tested separately.
 
 ## 🧩 Second path: `mlir-aie` (IRON)
 
-`iree-amd-aie` (above) compiles **whole graphs**;
-[`Xilinx/mlir-aie`](https://github.com/Xilinx/mlir-aie) (IRON) is the lower-level
-path — you **author NPU kernels directly** and run them via `pyxrt`, and it ships
+`iree-amd-aie` (above) compiles supported IREE graphs;
+[`Xilinx/mlir-aie`](https://github.com/Xilinx/mlir-aie) is the lower-level stack
+this repo pins at 1.4.1. Its IRON Python API/compiler path lets you **author NPU
+kernels directly** and run them via `pyxrt`, and the project ships
 real ML `programming_examples`. The hardware paths have evidence on **both
 generations**, but not under the same dependency snapshot: the Phoenix/`npu1`
 results are historical, while the v1 exact lock was revalidated on Strix/`npu2`
@@ -170,6 +186,21 @@ iree-amd-aie's Peano only when
 its exact `llvm-aie` version **and clang build commit** match this mlir-aie
 release's `utils/peano-requirements.txt` pin; otherwise it installs that pinned
 wheel in the mlir-aie venv. Full guide → **[docs/MLIR-AIE.md](docs/MLIR-AIE.md)**.
+
+[`amd/IRON`](https://github.com/amd/IRON) is a separate, newer operator and
+application library built on MLIR-AIE language bindings; it is neither a rename
+nor the new repository location of `Xilinx/mlir-aie`. That moving library is
+materially broader than this release's pinned direct-kernel track. At exact
+commit [`cdc48e93`](https://github.com/amd/IRON/tree/cdc48e93), AMD's official
+Phoenix workflow reported **2,105 passing and 45 skipped pytest case-runs**.
+Because the workflow's default is five iterations, those totals represent
+**421 distinct passing configurations and 9 distinct skipped configurations**,
+not 2,105 different tests. The nine skips are three MHA, three streaming-SwiGLU,
+and three GEMV+GELU configurations, each repeated five times.[^iron-phoenix-ci]
+Passing CPU-referenced AIE2 coverage includes GEMM/GEMV, Q4NX dequantization,
+softmax, RoPE, RMSNorm/LayerNorm, activations, and transpose. This is upstream
+Phoenix evidence, not this repo's current-lock XDNA1 rerun or an end-to-end LLM;
+GQA is not established by this Phoenix run.
 
 ```bash
 ./scripts/setup-mlir-aie.sh                 # mlir_aie wheel + py3.14 venv + compatible Peano
@@ -212,11 +243,12 @@ Full detail in **[docs/GOTCHAS.md](docs/GOTCHAS.md)**. The short list:
 
 **Full audience-by-audience guide (games · AI agents · local apps) with feasibility ratings → [docs/APPLICATIONS.md](docs/APPLICATIONS.md).**
 
-Quick version — **[docs/USE-CASES.md](docs/USE-CASES.md)**. Honestly: this is **kernel-level**
-(matmul/conv building blocks), not turnkey model serving. Good for learning NPU
-programming, benchmarking, building/offloading specific low-power inference
-primitives, and contributing to the open XDNA1-on-Linux effort. It will **not**
-give you a drop-in LLM/Whisper/ONNX runtime on XDNA1 — that's XDNA2 / Windows territory.
+Quick version — **[docs/USE-CASES.md](docs/USE-CASES.md)**. Build a hybrid local-AI
+lab: NPU for repeated scoring, always-on stages, and verified dense/conv blocks;
+CPU for I/O, policy, and fallback; iGPU for token generation when needed. The
+new [local RAG sidecar](examples/local-rag-sidecar/) shows that split in source.
+There is still no drop-in whole-model XDNA1 server here, and energy efficiency
+remains a measurement goal rather than a repo-proven result.
 
 ## 📚 Background
 
@@ -231,9 +263,10 @@ the driver, compiler, and runtime all predate it and do the heavy lifting:
 | Layer | Prior art we build on / sit next to |
 |---|---|
 | Kernel driver | [`amd/xdna-driver`](https://github.com/amd/xdna-driver) — `amdxdna`, mainline since Linux 6.14, enumerates XDNA1 as `/dev/accel/accel0` |
-| Compiler / runtime | [`nod-ai/iree-amd-aie`](https://github.com/nod-ai/iree-amd-aie), [`Xilinx/mlir-aie`](https://github.com/Xilinx/mlir-aie) (IRON), [`Xilinx/llvm-aie`](https://github.com/Xilinx/llvm-aie) (Peano), [`amd/Triton-XDNA`](https://github.com/amd/Triton-XDNA) — upstream SDKs/frameworks targeting XDNA generations |
+| Compiler / runtime | [`nod-ai/iree-amd-aie`](https://github.com/nod-ai/iree-amd-aie), [`Xilinx/mlir-aie`](https://github.com/Xilinx/mlir-aie) (the pinned 1.4.1 IRON Python API/compiler stack), [`Xilinx/llvm-aie`](https://github.com/Xilinx/llvm-aie) (Peano), [`amd/Triton-XDNA`](https://github.com/amd/Triton-XDNA) — upstream SDKs/frameworks targeting XDNA generations |
+| Newer operator / application library | [`amd/IRON`](https://github.com/amd/IRON) — a separate project built on MLIR-AIE language bindings, not a rename or new location of `Xilinx/mlir-aie` |
 | Prior XDNA1 + Linux compute | a research paper ([arXiv 2504.03083](https://arxiv.org/abs/2504.03083) — GPT-2 on a Phoenix 7940HS via IRON), primitive-only tutorials, the [Gentoo wiki XDNA writeup](https://wiki.gentoo.org/wiki/User:Lockal/AMDXDNA) |
-| Turnkey NPU LLM on Linux | FastFlowLM · Lemonade 10.x · AMD Ryzen AI SW — **all XDNA2-only; they explicitly exclude XDNA1** |
+| Turnkey NPU LLM on Linux | [`FastFlowLM`](https://github.com/ROCm/FastFlowLM) and [`Lemonade`](https://github.com/lemonade-sdk/lemonade/blob/main/docs/guide/faq.md) explicitly require XDNA2 for their NPU paths; AMD Ryzen AI Software 1.8 for Linux lists STX/KRK only, not Phoenix XDNA1 |
 
 So "first NPU on Linux", "first compiler", or "first to run XDNA1" would all be
 overclaims — and we don't make them.
@@ -276,8 +309,13 @@ XDNA2 machine**. See **[CONTRIBUTING.md](CONTRIBUTING.md)**. In short:
 
 ## 📄 License
 
-**[MIT](LICENSE)** © 2026 Jonas-Augustinus-Linus — use it, fork it, ship it.
+**[MIT](LICENSE)** © 2026 Jonas-Augustinus-Linus — use it, copy it, modify it,
+fork it, publish it, redistribute it, teach with it, or ship it commercially.
+Preserve the copyright and license notice as the license requires.
 
 The scripts and docs in this repo are MIT. They build and drive third-party
 projects under their own licenses — IREE and `iree-amd-aie` (Apache-2.0 WITH
 LLVM-exception), `Xilinx/llvm-aie` (Peano) — which this repo does not redistribute.
+
+[^amd-linux-support]: AMD, [Ryzen AI Software 1.8 for Linux](https://ryzenai.docs.amd.com/en/latest/linux.html), accessed 2026-08-15.
+[^iron-phoenix-ci]: AMD IRON, [official Phoenix workflow run 31876069460](https://github.com/amd/IRON/actions/runs/31876069460), commit `cdc48e93`.

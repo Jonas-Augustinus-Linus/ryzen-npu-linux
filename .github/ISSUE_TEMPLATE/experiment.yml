@@ -1,0 +1,87 @@
+name: Open NPU experiment
+description: Share a reproducible idea, result, or useful failure on any XDNA generation
+title: "[experiment]: "
+labels:
+  - experiment
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thank you for helping turn idle laptop NPUs into an open Linux laboratory.
+        Successful, slower-than-CPU, compile-only, and failed experiments are all welcome.
+        Please keep evidence classes separate and share code under a license others can use.
+
+  - type: dropdown
+    id: stage
+    attributes:
+      label: Evidence stage
+      options:
+        - Idea / design only
+        - Compile-only
+        - Hardware correctness
+        - Performance measured
+        - Energy measured
+    validations:
+      required: true
+
+  - type: input
+    id: device
+    attributes:
+      label: Exact device
+      description: CPU/APU model, PCI ID, VBNV, and detected target if available
+      placeholder: Ryzen 7 7840U; 1022:1502; RyzenAI-npu1; npu1_4col
+    validations:
+      required: true
+
+  - type: textarea
+    id: purpose
+    attributes:
+      label: What are you trying to make useful?
+      description: Describe the local-AI, LLM, accessibility, media, DSP, or research use case.
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Reproduction commands
+      description: Start from a fresh clone where possible. Include toolchain lock/commit and input shapes/dtypes.
+      render: shell
+    validations:
+      required: true
+
+  - type: textarea
+    id: correctness
+    attributes:
+      label: Correctness evidence
+      description: CPU/trusted reference, complete-output error metrics, tolerance, and pass/fail. Say "not run" when applicable.
+    validations:
+      required: true
+
+  - type: textarea
+    id: measurements
+    attributes:
+      label: Performance and energy evidence
+      description: Raw latency/throughput/power/energy, warmups, repetitions, power mode, and baselines. Say "not measured" instead of estimating.
+    validations:
+      required: true
+
+  - type: textarea
+    id: artifacts
+    attributes:
+      label: Open artifacts
+      description: Link source, patch, model provenance/license, raw logs, screenshots, and minimized failures. Do not upload proprietary weights.
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: honesty
+    attributes:
+      label: Evidence agreement
+      options:
+        - label: I have separated compile, hardware correctness, performance, and energy claims.
+          required: true
+        - label: I have identified CPU fallback or host-side operations instead of calling them NPU execution.
+          required: true
+        - label: The artifacts I link may be shared publicly under their stated licenses.
+          required: true

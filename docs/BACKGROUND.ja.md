@@ -1,66 +1,101 @@
 **[🇬🇧 English](BACKGROUND.md) · [🇩🇪 Deutsch](BACKGROUND.de.md) · [🇫🇷 Français](BACKGROUND.fr.md) · [🇰🇷 한국어](BACKGROUND.ko.md) · [🇯🇵 日本語](BACKGROUND.ja.md)**
 
-# 背景: XDNA1、XDNA2、そして第1世代で Linux が難しい理由
+# 背景: XDNA1、XDNA2、Linux のオープンな経路
 
-## チップについて
+## ターンキースタックが先へ進んでも、シリコンが無価値になるわけではない
 
-AMD の Ryzen AI NPU は、Xilinx から受け継いだ **AI Engine (AIE)** 空間アレイです。
-VLIW ベクタタイルをストリーミング/DMA インターコネクトで接続したグリッドに加え、ホストへ橋渡しする
-メモリ行と "shim" 行を備えています。プログラミングは、CUDA スタイルのカーネルではなく、
-タイル上に演算を配置し、タイル間でデータをルーティングする (データフロー) ことで行います。
+AMD Ryzen AI NPU は、Xilinx から受け継いだ **AI Engine (AIE)** の空間
+アレイです。VLIW ベクタタイルをストリーミング/DMA インターコネクトで
+結び、メモリ行と shim 行がホストへ接続します。CUDA 型の汎用 GPU として
+扱うのではなく、タイル上に演算を配置してタイル間のデータをルーティング
+します。[^iron-guide]
 
-ここで重要なのは2つの世代です:
-
-| | **XDNA1** ("Phoenix"/"Hawk Point") | **XDNA2** ("Strix" など) |
+| | **XDNA1** (Phoenix/Hawk Point) | **XDNA2** (Strix および関連デバイス) |
 |---|---|---|
-| 搭載モデル | Ryzen 7040 / 8040 (例: **7840U**) | Ryzen AI 300 シリーズ |
-| タイルアーキ | AIE2 (`aie2`) | AIE2P |
-| Phoenix ジオメトリ | 4 コア行 × **4 使用可能列** (生では5)、`npu1_4col` | より大きい、`npu4` |
-| PCI ID | `1022:1502` | `1022:17f0` |
-| ~性能 | ~10 TOPS | ~50 TOPS |
+| 搭載製品 | **7840U** を含む Ryzen 7040/8040 | Ryzen AI 300 ファミリ |
+| タイルアーキテクチャ | AIE2 (`aie2`) | AIE2P |
+| 本リポジトリのターゲット | Phoenix: 使用可能な 4 列、`npu1_4col` | 検証済み Strix: `npu4` |
+| 公称 NPU 性能 | 7840U は最大 10 TOPS[^amd-7840u] | Ryzen AI 300 は最大 50 TOPS[^amd-platform-guide] |
 
-## Linux ソフトウェアの状況 (2026年央)
+7840U の公式仕様には、今も最大 10 TOPS の Ryzen AI エンジンが記載されて
+います。現在のアプリケーションソフトウェアが Phoenix を一覧に含めないから
+といって、その計算能力が消えるわけではありません。[^amd-7840u]
 
-**カーネル**側は解決済みです: `amdxdna` DRM accel ドライバは **Linux 6.14** で
-アップストリームに取り込まれました (ファームウェアも同様)。最新のカーネルでは NPU は
-`/dev/accel/accel0` として列挙され、`xrt-smi` がそれを認識します — **両方**の世代でです。
+## 2026-08-15 時点の Linux の状況
 
-XDNA1 がつまずくのは **ユーザースペース / コンパイラ**側です:
+カーネルの基盤は共通です。AMD のオープンな `amdxdna` ドライバは、対応
+デバイスを Linux のアクセラレータインターフェースへ公開します。AMD は
+ドライバ、XRT shim、ファームウェア要件、導入手順を公開しています。[^amdxdna]
 
-- **AMD Ryzen AI Software for Linux** (1.7.x) — **STX/KRK (XDNA2) のみ**をサポート。
-- **ONNX Runtime + Vitis AI EP** — Linux x86_64 ではクライアント NPU のグラフコンパイラ
-  が同梱されておらず、演算は CPU にフォールバックします。
-- **Lemonade / FastFlowLM** ("NPU LLMs on Linux" プロジェクト群) — **XDNA2 のみ**。
-  7000/8000 シリーズの XDNA1 は非サポートだと明言しています。
+便利な製品レイヤの対応範囲は世代ごとに異なります。AMD Ryzen AI Software
+1.8 for Linux が挙げるのは **STX と KRK** であり、
+Phoenix/XDNA1 ではありません。[^ryzenai-linux] これは現時点のターンキー
+対応表であって、XDNA1 が Linux で計算できないという判定ではありません。
 
-つまり Linux 上の XDNA1 は、ターンキースタックからは **ドライバからは見えるがアプリケーションからは
-見放された** 状態です。例外 — XDNA1 (`npu1`、4×5) を *明示的に* ターゲットとする、
-唯一の積極的に開発されているオープンな経路 — が **`nod-ai/iree-amd-aie`** という IREE プラグインです。
-研究グレード (任意のモデルではなくカーネル) ですが、ハードウェア上で本当に動作します。
-これがこのリポジトリでビルドするものです。
+XDNA1 の実験者には、現在 **2 つのオープンな低レベル経路**があります。
 
-## `amdxdna` HAL がデバイスに到達する仕組み
+1. **本リポジトリがパッケージする経路:** バージョンを厳密に固定した
+   [`nod-ai/iree-amd-aie`](https://github.com/nod-ai/iree-amd-aie) スタックです。
+   IREE プログラムを lowering し、デバイス固有の VMFB を作り、`amdxdna`
+   HAL から呼び出します。ここにあるスクリプトが、固定・ビルド・検出・実行・
+   全出力の CPU 比較を一つにします。公開済み Phoenix の測定値は当時の
+   nightly による過去の実機結果です。現在の v1 厳密 pin は Strix で再検証
+   済みですが、Phoenix での再実行は残っています。
+2. **直接カーネル経路:** Peano と XRT を使う
+   [`Xilinx/mlir-aie`](https://github.com/Xilinx/mlir-aie) です。本リポジトリは
+   IRON Python API／コンパイラスタックを 1.4.1 に固定し、開発者は空間 AIE
+   カーネルとデータ移動を直接記述します。新しい演算子・アプリケーション
+   ライブラリ [`amd/IRON`](https://github.com/amd/IRON) は MLIR-AIE 言語
+   bindings 上の別プロジェクトであり、`Xilinx/mlir-aie` の改名・移転先では
+   ありません。その上流結果は再現すべき研究上の手掛かりであり、本 release
+   pin が継承する保証ではありません。
 
-`iree-amd-aie` はあなたの matmul を次のようにコンパイルします:
+AMD IRON のコミット
+[`cdc48e93`](https://github.com/amd/IRON/tree/cdc48e93) における公式 Phoenix
+workflow は、**pytest case-run で 2,105 件成功、45 件スキップ**でした。[^iron-phoenix-ci]
+既定の 5 iterations では、これは **異なる成功構成 421 件と異なる skip 構成
+9 件**に相当します。9 件の skip は MHA、streaming-SwiGLU、GEMV+GELU が
+各 3 構成で、それぞれ 5 回反復されています。AIE2/Phoenix 実機テストで
+成功した CPU リファレンス範囲には GEMM/GEMV、Q4NX
+逆量子化、softmax、RoPE、RMSNorm/LayerNorm、activation、transpose が含まれます。
+これは XDNA1 が ML カーネルの実験室として有用であるという強いアップストリーム
+根拠です。ただし、本リポジトリの厳密な v1 スタックを再実行した結果でも、
+XDNA1 上のエンドツーエンド LLM の主張でもありません。MHA と
+streaming-SwiGLU は正確な skip に含まれ、GQA はこの Phoenix run では
+立証されていません。その境界も結果とともに伝える必要があります。
 
-1. **AIE コアコード** — Peano (`llvm-aie`、`aie2` ターゲットを持つ LLVM のフォーク)
-   がタイルごとのプログラム (`core_<col>_<row>.elf`) をコンパイルします。
-2. **設定 / 制御** — object-FIFO または AIR データフローの lowering、パケット
-   ルーティング、および制御プログラムを、(`bootgen` 経由で) `.vmfb` にパックします。
+## 本リポジトリの `amdxdna` HAL 経路がデバイスへ到達する仕組み
 
-実行時には **`amdxdna` HAL** (`-DIREE_EXTERNAL_HAL_DRIVERS=amdxdna` でランタイムに
-組み込まれる) が **`/dev/accel/accel0` を直接オープンし**、vendored UAPI ヘッダを使って
-DRM ioctl (`DRM_IOCTL_AMDXDNA_GET_INFO`、コマンド投入、フェンス待機) を発行します。
-これは外部の XRT `xrt_coreutil` ライブラリとはリンク**しません** — そちらは別個の実験的な
-`xrt` HAL です。だからこそ、in-tree の `amdxdna.ko` が存在する場合に AMD の out-of-tree な
-`xdna-driver` をビルドする必要が **ない** のです。
+`iree-amd-aie` は対応演算を次の要素へコンパイルします。
 
-デバイスは同じ ioctl を通じて自身のジオメトリを報告します。`npu1_4col` と
-`--amdxdna_n_core_cols=4` はそれと一致していなければなりません ([GOTCHAS #6](GOTCHAS.ja.md) を参照)。
+1. **AIE コアプログラム:** Peano (`llvm-aie`) が該当する AIE
+   アーキテクチャ向けのタイルごとのコードをコンパイルします。
+2. **構成と制御:** データフロー lowering、ルーティング、DMA/制御コード、
+   デバイスプログラムを `.vmfb` にまとめます。
+3. **ホストからの呼び出し:** IREE `amdxdna` HAL が `/dev/accel/accel0` を開き、
+   カーネル UAPI 経由でコマンドを投入して fence を待ちます。これは IRON
+   サンプルが使う別の XRT/`pyxrt` ホスト経路とは異なります。
 
-## 参考資料
+デバイス形状も正しさの契約に含まれます。検証済み Phoenix マッピングでは
+`npu1_4col` と `--amdxdna_n_core_cols=4` が一致しなければなりません。本
+リポジトリは将来の未知デバイスにターゲットを推測で割り当てません。
+[GOTCHAS #6](GOTCHAS.ja.md) と [対応表](SUPPORT.md) を参照してください。
 
-- AMD `xdna-driver` & カーネル `amdxdna` ドキュメント (kernel.org `accel/amdxdna`)
-- `nod-ai/iree-amd-aie` (README、`build_tools/ci/`)
-- `Xilinx/llvm-aie` (Peano)
-- IREE (`iree.dev`)
+## 2 つの経路がともに重要な理由
+
+IREE 経路は、再現可能なアプリ統合と常駐 C/Python ランタイムを実用的に
+します。IRON 経路は、タイル、FIFO、カーネル、動き続ける演算子の最前線を
+見えるようにします。両方を使えば、一般のノート PC 所有者も CPU で照合した
+matmul から始め、ハイブリッドなローカル AI を組み立て、コンパイラや演算子の
+境界を一つずつ動かせます。
+
+プロジェクト全体の地図は英語版 [Open NPU Lab](OPEN-NPU-LAB.md)、一次資料と
+主張の範囲は [研究台帳](RESEARCH.md)、未完了の作業は
+[LLM ロードマップ](LLM-ROADMAP.md) を参照してください。
+
+[^amd-7840u]: AMD, [Ryzen 7 7840U 仕様](https://www.amd.com/en/products/processors/laptop/ryzen/7000-series/amd-ryzen-7-7840u.html).
+[^amd-platform-guide]: AMD, [Ryzen and Radeon consumer pocket guide](https://www.amd.com/content/dam/amd/en/documents/partner-hub/ryzen/amd-consumer-pocket-guide-ryzen-radeon-july-2024.pdf), 2024-07.
+[^amdxdna]: AMD, [`xdna-driver`: AMD NPU 用 Linux ドライバと XRT インターフェース](https://github.com/amd/xdna-driver).
+[^ryzenai-linux]: AMD, [Ryzen AI Software 1.8 — Linux システム要件と対応プラットフォーム](https://ryzenai.docs.amd.com/en/latest/linux.html), 2026-08-15 閲覧。
+[^iron-guide]: AMD IRON, [Programming guide](https://github.com/amd/IRON/blob/main/programming_guide/README.md).
+[^iron-phoenix-ci]: AMD IRON, [公式 Phoenix workflow run 31876069460](https://github.com/amd/IRON/actions/runs/31876069460), commit `cdc48e93`.

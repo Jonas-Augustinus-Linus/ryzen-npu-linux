@@ -30,6 +30,23 @@ The in-tree driver first appeared in Linux 6.14. Other recent distributions may
 work, but the package-install commands are written for apt/Ubuntu and need a
 reported hardware result before they become verified here.
 
+## Upstream evidence is not a repository support badge
+
+There is now substantial current evidence that Phoenix silicon remains useful.
+AMD IRON's official Phoenix/AIE2 workflow at exact commit
+[`cdc48e9`](https://github.com/amd/IRON/tree/cdc48e93fd2c8776105780790c46ba4bca1bc40e)
+reported [2,105 passing and 45 skipped pytest case-runs](https://github.com/amd/IRON/actions/runs/31876069460)
+under five default iterations on 2026-08-15: 421 distinct passing and nine
+distinct skipped parameter configurations. Its CPU-referenced coverage includes bf16
+GEMM/GEMV, Q4NX dequantization, Softmax, RoPE, RMS/LayerNorm, activations, and
+transpose. That upstream run is strong XDNA1 ecosystem evidence, but it does
+not substitute for rerunning this repository's exact lock and acceptance
+contract on Phoenix or Hawk Point.
+
+See the [Open NPU Lab](OPEN-NPU-LAB.md) for practical starting points and the
+[research map](RESEARCH.md) for primary sources, skipped operator families, and
+ideas that can be extended without overstating present support.
+
 ## Build resources and privileges
 
 - x86-64 Linux with Python 3.12 available through `uv`;

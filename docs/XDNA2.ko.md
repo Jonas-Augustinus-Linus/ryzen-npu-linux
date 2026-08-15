@@ -10,6 +10,11 @@
 델타다: 이 저장소의 레시피와 도구 중 무엇이 그대로 이어지는지, 2세대에서 무엇이
 달라지는지, 그리고 열린 최전선이 지금 어디에 있는지.
 
+목적은 어느 세대에서나 같습니다. 개인 기기 안에 이미 들어 있는 NPU를 들여다볼 수 있고
+재사용할 수 있는 Linux 인프라로 만드는 것입니다. 이 뜻은
+[Open NPU Lab](OPEN-NPU-LAB.ko.md), 이 페이지 밖으로 이어지는 1차 자료는
+[Research branches](RESEARCH.md)를 참고하십시오.
+
 아래에는 두 종류의 주장이 있으며, 명확히 구분해 두었다:
 
 - **✅ 검증됨(Verified)** — 실제 XDNA2 머신에서 재현됨:
@@ -17,6 +22,9 @@
   · 인트리 `amdxdna` · NPU FW 1.1.2.64**.
 - **🔎 조사됨(Researched)** — 상류(upstream) 저장소/문서/벤치마크(2026년 8월)에서
   취합했고, 인라인으로 링크를 달았으며, 여기서 아직 재현하지는 않았다.
+
+이 저장소는 Strix 머신의 system energy를 아직 측정하지 않았습니다. 아래의 모든 energy
+수치는 명시한 upstream에서 가져온 것이며 이 저장소가 만든 증거가 아닙니다.
 
 > **이 릴리스의 실행 지원 범위는 XDNA2 제품군 설명보다 좁다.** 실기 검증과
 > 자동 매핑을 완료한 대상은 Strix Point `RyzenAI-npu4` / IREE `npu4`뿐이다.
@@ -28,10 +36,10 @@
 
 | | XDNA1 (이 저장소의 홈그라운드) | XDNA2 |
 |---|---|---|
-| Linux에서 턴키 LLM | ❌ 없음 — 출시된 모든 스택에서 제외됨 | ✅ FastFlowLM + Lemonade 10.0 (2026-03부터) |
+| Linux에서 턴키 LLM | 이 저장소는 server를 배포하지 않음; 더 낮은 수준의 open IREE/IRON 연구 경로는 열려 있음 | ✅ FastFlowLM + Lemonade |
 | XRT 유저스페이스 | 이 저장소대로 빌드/설치 | ✅ **Ubuntu 26.04가 기본 탑재로 배포** (`libxrt-npu2`) |
-| 커스텀 커널 (열린 경로) | `iree-amd-aie` / `mlir-aie` 소스 빌드 | 동일 스택, 지원은 더 좋아짐: IRON 1.4.x는 Strix를 일급(first-class)으로 다룬다 |
-| 기여가 살아 있는 곳 | *무엇이든* 돌아가게 만들기 | 오픈 커널 격차 메우기 (턴키 NPU 커널은 프로프라이어터리) |
+| 커스텀 커널 (열린 경로) | 저장소 고정 `iree-amd-aie`와 `mlir-aie`; 계속 움직이는 `amd/IRON`은 별도 upstream 경로 | 같은 공개 기반, Strix는 일급 `npu2`/`npu4` target |
+| 기여가 살아 있는 곳 | 유용한 Phoenix block을 재현하고 조합하기 | 열린 양자화·fused kernel과 애플리케이션 통합 |
 
 이 저장소가 가르치는 모든 것 — XRT 배관 작업, memlock/render 그룹 활성화,
 디스패치 오버헤드, Peano, IRON 커널 작성 — 은 **그대로 이어진다**. 달라지는 것은
@@ -105,7 +113,7 @@ XDNA2/Ubuntu 26.04에서 활성화는 컴파일이 아니라 설정의 문제다
 
 ![IREE, npu-runner, XRT, HRX로 진행한 XDNA2 Strix Point 실기 연산 검증](media/xdna2-compute.gif)
 
-IRON 트랙은 활성화가 자리 잡은 바로 그날 돌아갔다 — `setup-mlir-aie.sh`
+저장소 고정 direct-kernel 경로는 활성화가 자리 잡은 바로 그날 돌아갔다 — `setup-mlir-aie.sh`
 무수정, mlir-aie **1.4.1**(cp314 wheel), Peano wheel, Ubuntu의 `pyxrt`.
 전체 표는 [MLIR-AIE.ko.md](MLIR-AIE.ko.md)에 있다; 헤드라인만 추리면:
 
@@ -119,9 +127,11 @@ IRON 트랙은 활성화가 자리 잡은 바로 그날 돌아갔다 — `setup-
 - **Phoenix의 4 컬럼에서 `CREATE_HWCTX`에 실패하는 바로 그 설계인
   `ml/mobilenet`이** 8 컬럼 어레이에서는 **엔드투엔드로 돌아간다**:
   ~176 ms/추론.
-- LLM 블록은 `npu2`에서 전부 통과한다: softmax, RoPE, SwiGLU, RMSNorm,
-  matmul+활성화-에필로그.
-- IRON 1.4.x API로 이식한 우리의 커스텀 `relu(a+b)` 커널은 **8 컬럼에서
+- 저장소에 고정된 **mlir-aie 1.4.1** 경로에서 softmax, RoPE, SwiGLU,
+  RMSNorm, matmul+activation epilogue의 개별 `npu2` 예제가 통과했습니다.
+  이는 해당 예제에 대한 저장소 소유 Strix 증거이지, 모델 전체 결과나 별도로 움직이는
+  `amd/IRON` operator dashboard가 아닙니다.
+- mlir-aie 1.4.1의 IRON API로 이식한 우리의 커스텀 `relu(a+b)` 커널은 **8 컬럼에서
   8.0×**로 스케일된다(`transform_parallel_binary`), 실효 11.2 GB/s.
 
 ### ✅ IREE: `npu4` CPU 참조 정확도(별도 트랙)
@@ -169,10 +179,11 @@ bfp16ebs8 경로와는 다르다. 별도의 Peano 21 누적 스윕은 K=1216에�
 ## 🔎 뒤집힌 지형: XDNA2에는 턴키가 존재한다 — 단, 함정이 하나 있다
 
 - **FastFlowLM**은 v0.9.35(2026-03-11)에서 네이티브 Linux 지원을 출시했는데,
-  **XDNA2 전용**이다 — XDNA1은 여전히 제외되어 있으며, 이 저장소의 소스 빌드
-  경로가 유일한 XDNA1 길로 남는 이유가 바로 그것이다. FLM v1.0.0은 AMD의
+  **XDNA2 전용**입니다. XDNA1은 이 제품에서 여전히 제외됩니다. 따라서 이 저장소는
+  소스 compiler 경로를 유지하며, 별도로 계속 움직이는 AMD IRON library가 또 하나의
+  열린 Phoenix 연구 면을 제공합니다. FLM v1.0.0은 AMD의
   [ROCm GitHub org](https://github.com/ROCm/FastFlowLM)로 이동했다(2026-08).
-  **Lemonade 10.0**은 이를 OpenAI 호환 서버로 감싼다
+  **Lemonade**는 이를 OpenAI 호환 서버로 감싼다
   ([Linux 가이드](https://lemonade-server.ai/flm_npu_linux.html)).
 - **함정은 이것이다:** FLM의 CLI는 MIT지만, 그 **NPU 커널은 무료로 쓸 수 있는
   프로프라이어터리 바이너리**다. 이는 사용하는 제품이지, 커널 작성을 배울
@@ -193,8 +204,10 @@ bfp16ebs8 경로와는 다르다. 별도의 Peano 21 누적 스윕은 K=1216에�
 | `scripts/build.sh` (iree-amd-aie) | ✅ 실기 검증 | Strix에서 소스 빌드+설치 완료; 제한된 병렬도로 관측된 OOM을 방지하고, 마지막 검사가 `npu1_4col`과 `npu4`를 모두 요구함; Peano 22 `4a1adefa`로 테스트 |
 | `scripts/run-matmul.sh` | ✅ 실기 검증 | 4×8 격자를 감지해 `npu4`를 선택; XDNA1 경로를 유지하면서 i32 128³과 bf16 512³이 올바르게 컴파일·실행됨 |
 | `tools/npu-runner` | ✅ 실기 검증 | C API 격자 자동 탐지가 4×8을 확인; 네이티브 runner와 ctypes/Python 경로 모두 i32 출력 16,384개 전체를 검증 |
-| `tools/npu-trim` | ✅ 개념 그대로 유효 | op 커버리지 최전선은 이동하지만 접근법은 동일; 이를 대체할 벤더 EP는 Linux에 여전히 없다 |
-| `mlir-aie` (IRON) 트랙 | ✅ **검증됨 — 가장 유력한 경로** (이 커밋) | IRON [1.4.1](https://github.com/Xilinx/mlir-aie/releases): Strix가 일급 지원(`npu2`), **Peano가 기본**, `aiecc`는 이제 C++ 바이너리, 예제는 lit 구동; 우리의 스크립트 + 커스텀 커널을 이식함(어노테이션 API 파괴적 변경 — [GOTCHAS](GOTCHAS.ko.md)); 수치는 [MLIR-AIE.ko.md](MLIR-AIE.ko.md)에. 이전 조사에 대한 정정: mlir-aie 1.4.1은 **선택형 HRX Python 백엔드를 실제로 제공**하며, 외부에서 제공하는 `libhrx`가 필요하다. 이 저장소의 `relu_add` 단일 Worker 및 8컬럼 설계는 여기서 HRX 런타임 디스패치와 정합성 PASS를 실제 하드웨어로 검증했다. 다만 아티팩트 생성에는 기존 XRT 툴체인을 사용했으므로, 완전히 XRT 없는 빌드+실행 경로까지 검증했다는 뜻은 아니다. [amd/IRON](https://github.com/amd/IRON)은 여전히 **wheel을 배포하지 않는다**(소스 설치 전용, mlir_aie 1.3.5.dev 스냅샷에 고정) |
+| [`examples/local-rag-sidecar`](../examples/local-rag-sidecar/) | ✅ `npu4` 실기 통합 검증 | 결정적 CPU hashing → persistent NPU bf16 scoring → CPU top-k이며 65,536개 출력을 모두 검사했습니다. 학습된 retriever가 아니라 통합 참고 예제이고, 작은 query 하나는 CPU가 더 빠를 가능성이 큽니다. |
+| `tools/npu-trim` | ✅ 개념 그대로 유효 | `build.sh`가 별도로 고정한 `iree-import-onnx`를 설치하며, 도구는 독립적인 matmul/conv shape를 추출하고 시험 컴파일합니다. 모델 전체를 다시 만들지 않으며 가중치, layout, 미지원 glue, fallback, orchestration은 앱이 소유합니다. |
+| 저장소 고정 `mlir-aie` 경로 | ✅ **Strix 실기 검증** | [`mlir-aie` 1.4.1](https://github.com/Xilinx/mlir-aie/releases)은 Strix를 `npu2`로 다루고 Peano를 기본으로 쓰며 [MLIR-AIE.ko.md](MLIR-AIE.ko.md)에 측정한 direct-kernel 경로를 제공합니다. 선택형 HRX Python backend에는 외부 `libhrx`가 필요하고 저장소 artifact는 계속 XRT를 사용했으므로 완전한 XRT-free 주장도 아닙니다. |
+| 계속 움직이는 `amd/IRON` operator library | 🔎 **별도 업스트림 실기 증거** | exact `cdc48e93`의 2026-08-15 Phoenix workflow는 기본 5회 반복으로 **2,105 passing / 45 skipped case-run**, 즉 **서로 다른 통과 구성 421개 / 서로 다른 skip 9개**를 보고합니다.[^iron-phoenix] 이 움직이는 source tree와 Phoenix CI를 저장소 고정 1.4.1 Strix 결과와 합쳐 말하면 안 됩니다. |
 
 ## 🔎 커널을 작성할 때 중요한 하드웨어 델타
 
@@ -235,45 +248,67 @@ bfp16ebs8 경로와는 다르다. 별도의 Peano 21 누적 스윕은 K=1216에�
 - 이치에 맞는 아키텍처는 **NPU-prefill + iGPU-decode 하이브리드**다 —
   정확히 AMD 자신의 Windows 스택이 작업을 나누는 방식이다.
 
+### 세대를 잇는 연구의 다리
+
+열린 연구는 이미 저장소 고정 예제보다 더 멀리 나아갔지만 baseline은 분리해서 읽어야
+합니다. Rösti와 Franz의 Phoenix 실험은 GPT-2 124M fine-tuning의 GEMM을 1세대
+NPU로 offload하고 hybrid throughput과 energy에 대한 저자 수치를 공개했습니다.
+[^phoenix-gpt2] STEEL은 평균 **DATO 대비 9.6배 XDNA1 latency**를 보고하지만,
+CPU/GPU energy 수치는 그 XDNA1 port가 아니라 별개의 HX 370/**XDNA2** 실험에서
+나왔습니다.[^steel] 재현하고 확장할 공개 결과이지 이 저장소가 소유한 benchmark는
+아닙니다.
+
 ## 다음으로 갈 곳
 
-1. ~~4×8 어레이에서 IRON GEMM 재현~~ — **✅ 완료**(mlir-aie 1.4.1,
+1. ~~4×8 어레이에서 direct `mlir-aie` GEMM 재현~~ — 저장소 고정
+   mlir-aie 1.4.1로 **✅ 완료**:
    어레이 전체 GEMM이 i8 6.65 TOPS / bf16-bfp16 4.64 TFLOPS, LLM 블록,
-   전체 MobileNet; [MLIR-AIE.ko.md](MLIR-AIE.ko.md)). GQA/MHA:
-   [amd/IRON](https://github.com/amd/IRON) op 라이브러리에 있지만 **aie2p
-   전용**(head-dim 64만)이다 — 다만 그것은 소스 설치 전용이고, mlir_aie
-   1.3.5.dev 스냅샷에 고정되어 있으며, 유일한 양자화 op는 *dequant*(Q4NX/AWQ
-   → bf16)다. wheel 없음, 융합 W4A16 없음.
+   전체 MobileNet; [MLIR-AIE.ko.md](MLIR-AIE.ko.md)를 참고하십시오. 이와 별도로
+   exact `amd/IRON` commit `cdc48e93`의 Phoenix hardware workflow는 기본 5회 반복으로
+   **2,105 passing / 45 skipped case-run**, 즉 **서로 다른 통과 구성 421개 / 서로 다른
+   skip 9개**를 기록했습니다. 통과 항목에는 bf16 GEMM/GEMV, Q4NX dequant, softmax, RoPE,
+   RMSNorm, LayerNorm, activation, transpose, SwiGLU decode/prefill이 포함됩니다.
+   서로 다른 skip은 정확히 MHA 3개, streaming-SwiGLU-prefill 3개, GEMV+GELU 구성
+   3개이며, 각각 5회 반복되어 15 case-run짜리 세 그룹이 됩니다. MHA/GQA dashboard는
+   **AIE2P 전용**입니다.[^iron-phoenix] XDNA1로 되가져올 실험 후보를
+   넓혀 주지만 이 저장소의 current-pin Phoenix 재실행이나 완전한 LLM은 아닙니다.
 2. ~~iree-amd-aie matmul 레시피와 `npu-runner`를 `npu4`로 이식하고
    CPU 참조 정확도 확인~~ — **✅ 완료**. 빌드, 세대 감지 matmul 스크립트,
    상주형 C API runner, Python 래퍼가 모두 이 Strix 머신에서 실행됐고,
    upstream 하네스는 위의 전체 일치 표를 만들었다. 통제된 XDNA1 대 XDNA2
    성능 비교는 별도의 후속 작업이며, 이 정확도 실행에서 속도를 주장하지 않는다.
-3. **양자화 prefill GEMM** — 이제 정밀하게 지도가 그려진 기여 지점:
-   [TileFuse](https://arxiv.org/abs/2606.11357)가 W4A16 레시피를 *코드와
-   함께* 공개했다
+3. **양자화 prefill GEMM** — 기여 지점은 이제 정확히 정리됐습니다. **TileFuse는
+   외부 XDNA2 연구**이지 이 저장소의 runtime 결과가 아닙니다. 논문은 W4A16
+   recipe와 외부 code를 공개했습니다
    ([glassescrab/mlir-aie](https://github.com/glassescrab/mlir-aie/tree/feature/update-mix-mm-int4-verification),
    main보다 약 13개월 뒤처진 포크, **chess 우선**에 Peano는 옵션; AWQ
    group-128, k-타일 = 그룹 크기, dequant를 L1 weight-stationary 캐시와 함께
-   타일 안에서 융합, Strix Point에서 9 TOPS). 열린 형태로는 어디에도 존재하지
-   **않는** 것: 그 커널의 **현행 IRON 1.4.x + Peano 전용** 버전, 그리고 어떤
-   llama.cpp 통합이든.
+   타일 안에서 융합, Strix Point에서 9 TOPS). **2026-08-15**에 인용하고 감사한
+   source에서는 그 TileFuse kernel의 **저장소 고정 mlir-aie 1.4.1 + Peano-only**
+   public port나 llama.cpp의 public TileFuse integration을 확인하지 못했습니다. 이는
+   날짜가 붙은 검색 결과이지 **부재의 증명은 아닙니다**.
    [#21725](https://github.com/ggml-org/llama.cpp/issues/21725)는 여전히 열려
    있고 아무도 맡지 않았다(작성자의 WIP는 2026-04에 멈췄다; AMD 자신의
    활발한 노력은 HSA/ROCr 런타임 위의
    [`ggml-hsa`](https://github.com/ypapadop-amd/ggml/tree/hsa-backend)로 —
-   Ubuntu의 XRT와는 다른 스택이다). 또한 업스트림에서 측정되어 훔쳐올 가치가
-   있는 것: **64 KB 버퍼 정렬(SMMU 페이지)이 #21725에 인용된 IRON 실험에서
-   10× decode 손잡이였다**.
-   **이 머신에서 스파이크 확인(2026-08-15)**: TileFuse의 융합 dequant+GEMM
+   Ubuntu의 XRT와는 다른 스택이다). **64 KiB buffer alignment는 직접 검증할 가치가
+   있는 benchmark hypothesis로 남습니다.** 연결한 llama.cpp #21725에는 이를
+   뒷받침하는 1차 실험이나 raw log가 없으므로, 이 저장소는 **10배 decode를 주장하지
+   않습니다**.
+   **저장소 상태는 컴파일 전용(2026-08-15)**: TileFuse의 융합 dequant+GEMM
    커널(`mix_int4_ATB.cc`)이 **mlir-aie 1.4.1 헤더에 대해 Peano `aie2p`
    타깃으로 깔끔하게 컴파일된다**(`-Dbf16_bf16_ONLY`, m64/k128/n64 →
    `matmul_bf16_bf16`). 이 특수화의 프런트엔드 컴파일 장벽 하나를 넘은
    것이지, 포팅이 끝난 것은 **아니다**. IRON/ObjectFifo 통합, 링크, 배치,
    ABI 일치, 호스트 측 가중치 패킹, NPU 실행, 수치 정합성 검증이 모두 남아 있다.
    고정된 [`check-w4a16-compile.sh`](../scripts/check-w4a16-compile.sh)에 소스
-   커밋, 체크섬, 정확한 프런트엔드 플래그를 기록했다.
+   외부 source commit, checksum, 정확한 front-end flag를 기록했습니다. 이 저장소에는
+   W4A16 실기 실행, 정확성, throughput, energy 결과가 없습니다.
 
 *상태: 2026-08-15에 페이지 추가; 같은 날 위의 Strix Point 머신에서 활성화,
-IRON 연산, CPU 참조 정확도를 포함한 IREE `npu4` 이식을 검증했다.
+direct-kernel 연산, CPU 참조 정확도를 포함한 IREE `npu4` 이식을 검증했다.
 🔎 항목들은 출처를 인라인으로 달고 있다.*
+
+[^iron-phoenix]: AMD, [`IRON` commit `cdc48e93`](https://github.com/amd/IRON/tree/cdc48e93fd2c8776105780790c46ba4bca1bc40e) 및 [Phoenix extensive hardware workflow 31876069460](https://github.com/amd/IRON/actions/runs/31876069460), 2026-08-15. workflow 기본 5회 반복에서 2,105 passing / 45 skipped case-run은 서로 다른 통과 구성 421개 / 서로 다른 skip 9개에 해당합니다. 업스트림 증거이며 저장소 exact-v1 XDNA1 실행이 아닙니다.
+[^phoenix-gpt2]: A. Rösti, M. Franz, [“Unlocking the AMD Neural Processing Unit for ML Training on the Client Using Bare-Metal-Programming Tools”](https://arxiv.org/abs/2504.03083), FCCM 2025. 1세대 Phoenix, hybrid GPT-2 124M fine-tuning. 이 저장소에서 재현하지 않았습니다.
+[^steel]: V. J. B. Jung 외, [“STEEL: Sparsity-Aware Fused Attention for Energy-Efficient Long-Sequence Inference on AMD's XDNA NPU”](https://arxiv.org/abs/2607.09385), IEEE COINS 2026. XDNA1 latency와 XDNA2 energy 실험을 분리해 읽어야 합니다.

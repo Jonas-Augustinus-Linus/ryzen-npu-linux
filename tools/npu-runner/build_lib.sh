@@ -10,11 +10,17 @@ APLUG="$BLD/runtime/plugins/AMD-AIE/iree-amd-aie"
 U="$BLD/runtime/src/iree/hal/utils"; A="$BLD/runtime/src/iree/async"
 HERE="$(cd "$(dirname "$0")" && pwd)"
 DEFS="-DIREE_ALLOCATOR_SYSTEM_CTL=iree_allocator_libc_ctl"
+OUTPUT="${LIBNPU_OUT:-$HERE/libnpu.so}"
 
 [ -f "$BLD/runtime/src/iree/runtime/libiree_runtime_unified.a" ] || {
   echo "Build iree-amd-aie first (../../scripts/build.sh). Missing: $BLD"; exit 1; }
 
-g++ -O2 -std=c++17 -fPIC -shared $DEFS "$HERE/libnpu.cc" -o "$HERE/libnpu.so" \
+mkdir -p "$(dirname "$OUTPUT")"
+TEMP_OUTPUT="$(mktemp "${OUTPUT}.tmp.XXXXXX")"
+cleanup() { rm -f -- "$TEMP_OUTPUT"; }
+trap cleanup EXIT INT TERM
+
+g++ -O2 -std=c++17 -fPIC -shared $DEFS "$HERE/libnpu.cc" -o "$TEMP_OUTPUT" \
   -I"$SRC" -I"$AMD" -I"$GEN" -I"$AMDGEN" \
   -Wl,--start-group \
     "$BLD/runtime/src/iree/runtime/libiree_runtime_unified.a" \
@@ -36,4 +42,8 @@ g++ -O2 -std=c++17 -fPIC -shared $DEFS "$HERE/libnpu.cc" -o "$HERE/libnpu.so" \
     "$BLD/build_tools/third_party/flatcc/libflatcc_parsing.a" \
     "$BLD/build_tools/third_party/flatcc/libflatcc_runtime.a" \
   -Wl,--end-group -luuid -ldl -lpthread -lm -lstdc++
-echo "built: $HERE/libnpu.so"
+[ -s "$TEMP_OUTPUT" ] || { echo "compiler produced an empty shared library" >&2; exit 1; }
+chmod 0755 "$TEMP_OUTPUT"
+mv -f -- "$TEMP_OUTPUT" "$OUTPUT"
+trap - EXIT INT TERM
+echo "built atomically: $OUTPUT"
