@@ -27,8 +27,12 @@ Une recette reproductible et de bout en bout — avec ses outils — pour faire 
 > paysage : l'inférence LLM clé en main existe désormais sous Linux
 > (FastFlowLM/Lemonade), Ubuntu 26.04 fournit nativement l'userspace XRT — et
 > l'outillage d'activation de ce dépôt y fonctionne **sans modification**
-> (vérifié sur un Ryzen AI 9 HX PRO 370). Ce qui se transfère, ce qui change,
-> et où s'est déplacée la frontière ouverte : **[docs/XDNA2.fr.md](docs/XDNA2.fr.md)**.
+> (vérifié sur un Ryzen AI 9 HX PRO 370). **Le calcul aussi** : la voie
+> mlir-aie/IRON tourne sur les 8 colonnes de Strix — GEMM i8 à 6.65 TOPS,
+> MobileNet complet, notre noyau personnalisé avec une montée en charge de
+> 8.0× sur les colonnes ([docs/MLIR-AIE.fr.md](docs/MLIR-AIE.fr.md)). Ce qui
+> se transfère, ce qui change, et où s'est déplacée la frontière ouverte :
+> **[docs/XDNA2.fr.md](docs/XDNA2.fr.md)**.
 
 ## 🎬 Démos
 
@@ -115,12 +119,13 @@ BENCH=1 ./scripts/run-matmul.sh bf16 # + benchmark
 `iree-amd-aie` (ci-dessus) compile des **graphes entiers** ;
 [`Xilinx/mlir-aie`](https://github.com/Xilinx/mlir-aie) (IRON) est la voie de plus
 bas niveau — vous **écrivez directement des noyaux NPU** et les exécutez via `pyxrt`, et elle
-livre de véritables `programming_examples` ML. Les deux ciblent `npu1` et **partagent le backend Peano
+livre de véritables `programming_examples` ML. Vérifiée sur les **deux générations**
+(`npu1` Phoenix et `npu2` Strix — détectées automatiquement), et elle **partage le backend Peano
 que vous avez déjà compilé**, donc l'ajout est peu coûteux. Guide complet → **[docs/MLIR-AIE.fr.md](docs/MLIR-AIE.fr.md)**.
 
 ```bash
 ./scripts/setup-mlir-aie.sh                 # mlir_aie wheel + py3.14 venv + reuse your Peano
-./scripts/run-mlir-example.sh ml/conv2d     # build for npu1 + run ON THE NPU (pyxrt)
+./scripts/run-mlir-example.sh ml/conv2d     # build for the detected NPU + run ON IT (pyxrt)
 ./examples/mlir-aie/relu_add/run.sh         # a custom hand-written fused kernel
 ```
 
@@ -137,9 +142,13 @@ Vérifié **sur le NPU** (XDNA1, `run_py` / `pyxrt`, sortie vs une référence (
 | `ml/magika` | Google's file-type model (bf16) | ~0.9 ms |
 | [`examples/mlir-aie/relu_add`](examples/mlir-aie/relu_add/) | **custom** fused `relu(a+b)` kernel | ~0.37 ms |
 
-`basic/matrix_multiplication` se compile en un xclbin (son hôte `run` est en C++ — a besoin de
-`libxrt-dev`) ; `ml/mobilenet` est à l'échelle XDNA2 (exige > 4 colonnes). Les détails et le
-guide pas-à-pas pour écrire votre propre noyau sont dans **[docs/MLIR-AIE.fr.md](docs/MLIR-AIE.fr.md)**.
+Sur **XDNA2** (Strix Point, 8 colonnes / 32 tuiles, mlir-aie 1.4.1) : le GEMM
+sur tableau entier atteint **6.65 TOPS** (i8) / **4.64 TFLOPS** (bf16 via bfp16),
+les blocs LLM (softmax/RoPE/SwiGLU/RMSNorm) passent, **`ml/mobilenet` complet
+s'exécute** (~176 ms — il ne *peut pas* tourner sur les 4 colonnes de Phoenix),
+et notre noyau personnalisé monte en charge à **8.0×** sur les colonnes. Les
+tableaux XDNA2 et le guide pas-à-pas pour écrire votre propre noyau sont dans
+**[docs/MLIR-AIE.fr.md](docs/MLIR-AIE.fr.md)**.
 
 ## 🪤 Les pièges (pourquoi une compilation/exécution naïve échoue)
 

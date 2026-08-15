@@ -24,8 +24,11 @@ AMD Ryzen AI **1세대(XDNA1 / "Phoenix")** NPU를 *드라이버에는 보이지
 > 🆕 **XDNA2(Strix/Krackan) 사용자라면?** 2세대에서 지형이 뒤집혔다: Linux에서
 > 턴키 LLM 추론이 이제 존재하고(FastFlowLM/Lemonade), Ubuntu 26.04는 XRT
 > 유저스페이스를 기본 패키지로 제공하며 — 이 저장소의 활성화 도구는 거기서
-> **무수정으로** 동작한다(Ryzen AI 9 HX PRO 370에서 검증). 무엇이 이식되고,
-> 무엇이 바뀌었으며, 열린 최전선이 어디로 옮겨갔는지: **[docs/XDNA2.ko.md](docs/XDNA2.ko.md)**.
+> **무수정으로** 동작한다(Ryzen AI 9 HX PRO 370에서 검증). **연산도 마찬가지다**:
+> mlir-aie/IRON 트랙이 Strix의 8개 컬럼 전부에서 돌아간다 — 6.65 TOPS i8 GEMM,
+> 전체 MobileNet, 그리고 8.0× 컬럼 스케일링을 보여주는 우리의 커스텀 커널
+> ([docs/MLIR-AIE.ko.md](docs/MLIR-AIE.ko.md)). 무엇이 이식되고, 무엇이 바뀌었으며,
+> 열린 최전선이 어디로 옮겨갔는지: **[docs/XDNA2.ko.md](docs/XDNA2.ko.md)**.
 
 ## 🎬 데모
 
@@ -110,13 +113,14 @@ BENCH=1 ./scripts/run-matmul.sh bf16 # + benchmark
 `iree-amd-aie`(위)는 **그래프 전체**를 컴파일한다;
 [`Xilinx/mlir-aie`](https://github.com/Xilinx/mlir-aie)(IRON)는 더 낮은 레벨의
 경로다 — 여기서는 **NPU 커널을 직접 작성**하고 `pyxrt`로 실행하며, 실제 ML
-`programming_examples`를 함께 제공한다. 둘 다 `npu1`을 타깃하며 **이미 빌드한
-Peano 백엔드를 공유**하므로, 추가하는 비용이 적다. 전체 가이드 →
+`programming_examples`를 함께 제공한다. **두 세대 모두**에서 검증되었고
+(`npu1` Phoenix와 `npu2` Strix — 자동 감지), **이미 빌드한 Peano 백엔드를
+공유**하므로, 추가하는 비용이 적다. 전체 가이드 →
 **[docs/MLIR-AIE.ko.md](docs/MLIR-AIE.ko.md)**.
 
 ```bash
 ./scripts/setup-mlir-aie.sh                 # mlir_aie wheel + py3.14 venv + reuse your Peano
-./scripts/run-mlir-example.sh ml/conv2d     # build for npu1 + run ON THE NPU (pyxrt)
+./scripts/run-mlir-example.sh ml/conv2d     # build for the detected NPU + run ON IT (pyxrt)
 ./examples/mlir-aie/relu_add/run.sh         # a custom hand-written fused kernel
 ```
 
@@ -133,9 +137,12 @@ Peano 백엔드를 공유**하므로, 추가하는 비용이 적다. 전체 가�
 | `ml/magika` | Google의 파일 유형 모델 (bf16) | ~0.9 ms |
 | [`examples/mlir-aie/relu_add`](examples/mlir-aie/relu_add/) | **커스텀** 융합 `relu(a+b)` 커널 | ~0.37 ms |
 
-`basic/matrix_multiplication`은 xclbin으로 컴파일된다(그 `run` 호스트는 C++이라
-`libxrt-dev`가 필요하다); `ml/mobilenet`은 XDNA2 규모다(4 컬럼보다 많은 것을
-원한다). 자세한 내용과 커널 직접 작성 워크스루는
+**XDNA2**(Strix Point, 8 컬럼 / 32 타일, mlir-aie 1.4.1)에서는: 어레이 전체
+(whole-array) GEMM이 **6.65 TOPS**(i8) / **4.64 TFLOPS**(bfp16 경유 bf16)를
+찍고, LLM 블록들(softmax/RoPE/SwiGLU/RMSNorm)이 통과하며, **전체
+`ml/mobilenet`이 돌아가고**(~176 ms — Phoenix의 4 컬럼에서는 *돌 수 없는*
+설계다), 우리의 커스텀 커널은 컬럼 전반에 걸쳐 **8.0×**로 스케일된다. XDNA2
+표들과 커널 직접 작성 워크스루는
 **[docs/MLIR-AIE.ko.md](docs/MLIR-AIE.ko.md)**에 있다.
 
 ## 🪤 Gotcha들 (순진하게 빌드/실행하면 왜 실패하는가)

@@ -26,7 +26,10 @@ AMD Ryzen AI **第1世代（XDNA1 / "Phoenix"）** NPU を *ドライバから�
 > Linux 上のターンキー LLM 推論が今や存在し（FastFlowLM/Lemonade）、Ubuntu 26.04
 > は XRT ユーザースペースをネイティブに同梱する — そして本リポジトリの
 > アクティベーション用ツール群はそこで**無改変のまま**動作する
-> （Ryzen AI 9 HX PRO 370 で検証済み）。何が移植でき、何が変わり、
+> （Ryzen AI 9 HX PRO 370 で検証済み）。**コンピュートも動く**:
+> mlir-aie/IRON トラックは Strix の全 8 カラムで動作する — 6.65 TOPS の i8 GEMM、
+> フル MobileNet、そして 8.0× のカラムスケーリングを示す我々のカスタムカーネル
+> （[docs/MLIR-AIE.ja.md](docs/MLIR-AIE.ja.md)）。何が移植でき、何が変わり、
 > オープンな最前線がどこへ移ったか: **[docs/XDNA2.ja.md](docs/XDNA2.ja.md)**.
 
 ## 🎬 デモ
@@ -111,13 +114,14 @@ BENCH=1 ./scripts/run-matmul.sh bf16 # + benchmark
 `iree-amd-aie`（上記）は **グラフ全体** をコンパイルします。
 [`Xilinx/mlir-aie`](https://github.com/Xilinx/mlir-aie)（IRON）はより低レベルの
 道です — **NPU カーネルを直接記述し**、`pyxrt` 経由で実行します。さらに本物の
-ML の `programming_examples` を同梱しています。どちらも `npu1` をターゲットとし、
-**すでにビルドした Peano バックエンドを共有** するため、追加するのは安上がりです。
+ML の `programming_examples` を同梱しています。**両世代**（`npu1` Phoenix と
+`npu2` Strix — 自動検出）で検証済みであり、**すでにビルドした Peano バックエンドを
+共有** するため、追加するのは安上がりです。
 詳しいガイド → **[docs/MLIR-AIE.ja.md](docs/MLIR-AIE.ja.md)**。
 
 ```bash
 ./scripts/setup-mlir-aie.sh                 # mlir_aie wheel + py3.14 venv + reuse your Peano
-./scripts/run-mlir-example.sh ml/conv2d     # build for npu1 + run ON THE NPU (pyxrt)
+./scripts/run-mlir-example.sh ml/conv2d     # build for the detected NPU + run ON IT (pyxrt)
 ./examples/mlir-aie/relu_add/run.sh         # a custom hand-written fused kernel
 ```
 
@@ -134,9 +138,12 @@ ML の `programming_examples` を同梱しています。どちらも `npu1` を
 | `ml/magika` | Google's file-type model (bf16) | ~0.9 ms |
 | [`examples/mlir-aie/relu_add`](examples/mlir-aie/relu_add/) | **custom** fused `relu(a+b)` kernel | ~0.37 ms |
 
-`basic/matrix_multiplication` は xclbin にコンパイルされます（その `run` ホストは C++ で、
-`libxrt-dev` が必要）。`ml/mobilenet` は XDNA2 スケールです（4 カラムを超えて要求します）。
-詳細と自分のカーネルを書くウォークスルーは **[docs/MLIR-AIE.ja.md](docs/MLIR-AIE.ja.md)** にあります。
+**XDNA2**（Strix Point、8 カラム / 32 タイル、mlir-aie 1.4.1）では: アレイ全体の
+GEMM が **6.65 TOPS**（i8）/ **4.64 TFLOPS**（bfp16 経由の bf16）に達し、LLM ブロック
+（softmax/RoPE/SwiGLU/RMSNorm）はパスし、**フルの `ml/mobilenet` が動作し**
+（~176 ms — Phoenix の 4 カラムでは *動かせない* 設計です）、我々のカスタムカーネルは
+カラム全体で **8.0×** にスケールします。XDNA2 の表と、自分のカーネルを書く
+ウォークスルーは **[docs/MLIR-AIE.ja.md](docs/MLIR-AIE.ja.md)** にあります。
 
 ## 🪤 落とし穴（素朴なビルド/実行が失敗する理由）
 

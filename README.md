@@ -26,8 +26,11 @@ A reproducible, end-to-end recipe — with tools — for taking an AMD Ryzen AI
 > 🆕 **On XDNA2 (Strix/Krackan)?** The second generation flipped the landscape:
 > turnkey LLM inference now exists on Linux (FastFlowLM/Lemonade), Ubuntu 26.04
 > ships the XRT userspace natively — and this repo's activation tooling works
-> there **unchanged** (verified on a Ryzen AI 9 HX PRO 370). What transfers,
-> what changes, and where the open frontier moved: **[docs/XDNA2.md](docs/XDNA2.md)**.
+> there **unchanged** (verified on a Ryzen AI 9 HX PRO 370). **Compute too**:
+> the mlir-aie/IRON track runs on all 8 Strix columns — 6.65 TOPS i8 GEMM,
+> full MobileNet, our custom kernel at 8.0× column scaling
+> ([docs/MLIR-AIE.md](docs/MLIR-AIE.md)). What transfers, what changes, and
+> where the open frontier moved: **[docs/XDNA2.md](docs/XDNA2.md)**.
 
 ## 🎬 Demos
 
@@ -120,12 +123,13 @@ BENCH=1 ./scripts/run-matmul.sh bf16 # + benchmark
 `iree-amd-aie` (above) compiles **whole graphs**;
 [`Xilinx/mlir-aie`](https://github.com/Xilinx/mlir-aie) (IRON) is the lower-level
 path — you **author NPU kernels directly** and run them via `pyxrt`, and it ships
-real ML `programming_examples`. Both target `npu1` and **share the Peano backend
+real ML `programming_examples`. Verified on **both generations** (`npu1` Phoenix
+and `npu2` Strix — auto-detected) and it **shares the Peano backend
 you already built**, so it's cheap to add. Full guide → **[docs/MLIR-AIE.md](docs/MLIR-AIE.md)**.
 
 ```bash
 ./scripts/setup-mlir-aie.sh                 # mlir_aie wheel + py3.14 venv + reuse your Peano
-./scripts/run-mlir-example.sh ml/conv2d     # build for npu1 + run ON THE NPU (pyxrt)
+./scripts/run-mlir-example.sh ml/conv2d     # build for the detected NPU + run ON IT (pyxrt)
 ./examples/mlir-aie/relu_add/run.sh         # a custom hand-written fused kernel
 ```
 
@@ -142,9 +146,12 @@ Verified **on the NPU** (XDNA1, `run_py` / `pyxrt`, output vs a torch/numpy gold
 | `ml/magika` | Google's file-type model (bf16) | ~0.9 ms |
 | [`examples/mlir-aie/relu_add`](examples/mlir-aie/relu_add/) | **custom** fused `relu(a+b)` kernel | ~0.37 ms |
 
-`basic/matrix_multiplication` compiles to an xclbin (its `run` host is C++ — needs
-`libxrt-dev`); `ml/mobilenet` is XDNA2-scale (wants > 4 columns). Details and the
-author-your-own-kernel walkthrough are in **[docs/MLIR-AIE.md](docs/MLIR-AIE.md)**.
+On **XDNA2** (Strix Point, 8 columns / 32 tiles, mlir-aie 1.4.1): whole-array
+GEMM hits **6.65 TOPS** (i8) / **4.64 TFLOPS** (bf16 via bfp16), the LLM blocks
+(softmax/RoPE/SwiGLU/RMSNorm) pass, **full `ml/mobilenet` runs** (~176 ms — it
+*can't* run on Phoenix's 4 columns), and our custom kernel scales **8.0×**
+across the columns. The XDNA2 tables and the author-your-own-kernel
+walkthrough are in **[docs/MLIR-AIE.md](docs/MLIR-AIE.md)**.
 
 ## 🪤 The gotchas (why a naive build/run fails)
 

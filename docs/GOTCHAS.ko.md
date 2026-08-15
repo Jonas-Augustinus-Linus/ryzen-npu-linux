@@ -287,4 +287,82 @@ RuntimeError: DRM_IOCTL_AMDXDNA_CREATE_HWCTX IOCTL failed (err=-22): Invalid arg
 설계가 Phoenix가 노출하는 것보다 많은 컬럼을 요청한다(**4** — 위 gotcha #6과
 같은 4다). 단일 빌딩 블록(`conv2d`, `bottleneck`, `resnet/layers_conv2_x`)과
 `magika`는 4 컬럼에 들어맞고 실행되지만, 전체 네트워크는 XDNA2(Strix, 8 컬럼)
-영역이다.
+영역이다. *(2026-08-15 확인: Strix Point의 8 컬럼에서는 네트워크 전체가
+엔드투엔드로 돌아간다, ~176 ms/추론 — [XDNA2.md](XDNA2.md).)*
+
+## M7. IRON 1.4.x는 어노테이션 없는 `@iron.jit` 호출 형태를 깨뜨렸다
+
+1.3.x 기준으로 작성된 이런 코드는
+
+```python
+iron.jit(transform_binary)(kernel, a, b, out, tile_size=tile_size)
+```
+
+1.4.x에서 다음과 함께 죽는다
+
+```
+TypeError: @iron.jit: parameter(s) ['tile_size', 'trace_size'] of 'transform_binary'
+have default values but no In / Out / InOut / CompileTime[T] annotation.
+```
+
+1.4.x는 어노테이션 붙은 설계 함수를 요구한다 — 텐서는 `In`/`Out`으로,
+컴파일 타임 스칼라는 keyword 전용 `CompileTime[T]` 파라미터로 — 그리고
+`iron.algorithms.*` 헬퍼들은 이제 살아 있는 텐서 대신 jit 본문 안에서
+**numpy 타입 기술자(type descriptor)**를 받는다:
+
+```python
+@iron.jit
+def design(a: In, b: In, out: Out, *,
+           num_elements: CompileTime[int], tile_size: CompileTime[int]):
+    tensor_ty = np.ndarray[(num_elements,), np.dtype[np.int32]]
+    return iron.algorithms.transform_binary(kernel, tensor_ty, tile_size=tile_size)
+```
+
+`ExternalFunction`은 여전히 뒤에 붙는 `int` 타일 크기 인자를 자동으로 받는다
+(parallel 변형에서는 `pass_size_to_kernel=True`). 전체 before/after는
+`examples/mlir-aie/relu_add/`를 볼 것.
+
+## M8. 코어 로컬 메모리는 64 KB다 — 타일 크기는 수학이 아니라 FIFO에 맞춰라
+
+바이너리(2입력) 요소별(element-wise) 설계는 한 코어의 데이터 메모리에
+**타일 버퍼 6개**가 동시에 살아 있어야 한다(ObjectFifo 3개 × 더블 버퍼링).
+`tile_size=4096` int32에서는 6 × 16 KB = 96 KB이고 aiecc는 배치(placement)에
+실패한다:
+
+```
+error: 'aie.tile' op Basic sequential allocation also failed.
+note: MemoryMap: (stack) 0x0-0x3FF … in0_cons_buff_1 0x14400-0x183FF …
+```
+
+`tile_size=1024`(6 × 4 KB + 스택)는 여유 있게 들어맞는다. 같은 예산이, 어레이
+전체 GEMM이 i8에서는 64³ 내부 타일을 받아들이면서 bf16에서는 받아들이지
+못하는 이유도 설명한다(2바이트 요소는 버퍼 크기를 두 배로 만든다).
+
+## M9. 바이너리 커널은 컬럼당 shim DMA 채널 2개를 구동할 수 없다
+
+`transform_parallel*(…, num_channels=2)`는 **단항(unary)** 커널에서 (컬럼,
+채널) 쌍마다 Worker 하나를 돌려 DDR 처리량을 두 배로 만든다. **바이너리**
+커널은 이미 컬럼당 MM2S shim 채널 두 개가 필요하다 — 입력마다 하나 —
+그런데 shim에는 정확히 두 개뿐이라, `num_channels=2`는 배치(placement)에
+실패한다:
+
+```
+error: no ShimNOCTile has sufficient DMA capacity for 0 input/1 output channels
+```
+
+2입력 커널은 `num_channels=1`을 유지하라.
+
+## M10. AIE2P(XDNA2)에서 bf16은 ¼ 속도다 — bf16 GEMM은 bfp16으로 돌려라
+
+bf16 MAC은 XDNA1의 AIE2에서는 네이티브지만 XDNA2의 AIE2P에서는 **bfp16
+데이터패스를 통해 약 ¼ 속도로 에뮬레이션**된다; 네이티브 모드는 bfp16 블록
+부동소수점(8×8×8)이다. 기본 제공 matmul들은 이 워크어라운드를 플래그로
+노출한다:
+
+```bash
+python whole_array.py … --dtype_in bf16 --dtype_out f32 --emulate-bf16-mmul-with-bfp16 1
+```
+
+여기서 측정한 값: 512³/32³-타일에서 +17%, 64×32×64 타일의 2048³에서 +25%
+(4.64 대 3.7 언저리 TFLOPS). 자세한 내용: [MLIR-AIE.md](MLIR-AIE.md) → GEMM
+교훈.
