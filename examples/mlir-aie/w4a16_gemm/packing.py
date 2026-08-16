@@ -26,6 +26,36 @@ GROUP = 128  # AWQ group size == TILE_K, one group per tile
 TILE_BYTES = TILE_K * TILE_N // 2 + TILE_N * 2 + TILE_N * 2  # 4096+128+128
 
 
+class PackedB(np.ndarray):
+    """Flat uint8 packed-weight blob tagged with the column count it was
+    packed for.
+
+    The byte order of a packed blob depends on ``n_aie_cols`` (tiles are laid
+    out per-column, see ``pack_b``), but two blobs for different column
+    counts have identical size and dtype — running one against a design built
+    for the other executes cleanly and silently produces wrong C.  The tag
+    plus ``assert_packed_for`` turn that silent corruption into a loud error.
+    """
+
+    n_aie_cols = None
+
+    def __array_finalize__(self, obj):
+        if obj is not None:
+            self.n_aie_cols = getattr(obj, "n_aie_cols", None)
+
+
+def assert_packed_for(blob, n_aie_cols):
+    """Fail loudly when *blob* was packed for a different column count."""
+    tag = getattr(blob, "n_aie_cols", None)
+    if tag != n_aie_cols:
+        raise ValueError(
+            f"packed B blob was packed for n_aie_cols={tag}, but the design "
+            f"uses n_aie_cols={n_aie_cols}; repack with "
+            f"pack_b(..., n_aie_cols={n_aie_cols}) — the byte order differs "
+            f"and the mismatch would silently corrupt C"
+        )
+
+
 def random_awq_weights(K, N, rng):
     """Random uint4 quantized weights + bf16 scales + uint4 zero-points.
 
@@ -66,6 +96,11 @@ def pack_b(Bq, scales, zeros, n_aie_cols=8):
     packed 4352-byte tiles appear in k order.  The design's per-column taps
     view this as shape (n_aie_cols, N//TILE_N//n_aie_cols * K//TILE_K *
     TILE_BYTES); the layout therefore depends on the deployed column count.
+
+    Returns a ``PackedB`` array whose ``n_aie_cols`` attribute records that
+    dependency; hosts must check it against the design's column count with
+    ``assert_packed_for`` before launching (the size and dtype of the blob
+    are identical across column counts, so nothing else would catch it).
     """
     K, N = Bq.shape
     assert K % TILE_K == 0 and N % TILE_N == 0
@@ -89,7 +124,9 @@ def pack_b(Bq, scales, zeros, n_aie_cols=8):
         for col in range(n_aie_cols)
         for jj in range(n_nt // n_aie_cols)
     ]
-    return out[order].reshape(-1)
+    blob = out[order].reshape(-1).view(PackedB)
+    blob.n_aie_cols = n_aie_cols
+    return blob
 
 
 def reference_matmul(A, Bdq, tilewise_bf16=False, tile_k=TILE_K):

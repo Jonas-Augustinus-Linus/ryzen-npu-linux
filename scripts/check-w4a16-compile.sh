@@ -2,8 +2,15 @@
 # Reproduce the narrowly scoped TileFuse W4A16 front-end compile check.
 #
 # This proves only that one pinned m64/k128/n64 kernel specialization compiles
-# for AIE2P with Peano and mlir-aie 1.4.1 headers.  It does not link/place an
-# IRON design, run on the NPU, or verify numerical results.
+# for AIE2P with Peano and mlir-aie 1.4.1 headers, with the exact flag set the
+# hardware-verified port uses.  The full IRON design, NPU execution,
+# CPU-reference verification, and benchmarks live in
+# examples/mlir-aie/w4a16_gemm/ (same sources, same sha256 pins).
+#
+# -DAIE_API_EMULATE_BFLOAT16_MMUL_WITH_BFP16 is part of the pinned flags: it
+# routes the kernel's 8x8x8 bf16 aie::mmul through the AIE2P bfp16 datapath.
+# Omitting it still compiles and runs but at 1/4-rate bf16 MACs — measured
+# 0.94 vs 5.81 TOPS at 2048^3 (docs/GOTCHAS.md M12).
 #
 # Env overrides:
 #   VENV          mlir-aie virtualenv (default: ~/src/mlir-aie-venv)
@@ -76,6 +83,7 @@ flags=(
   -DDIM_M=64
   -DDIM_K=128
   -DDIM_N=64
+  -DAIE_API_EMULATE_BFLOAT16_MMUL_WITH_BFP16
 )
 
 "$PEANO_INSTALL_DIR/bin/clang" "${flags[@]}" \
@@ -91,4 +99,4 @@ fi
 printf '[W4A16 compile] PASS\n'
 printf '[W4A16 compile] source: glassescrab/mlir-aie@%s\n' "$SOURCE_COMMIT"
 printf '[W4A16 compile] headers: mlir-aie %s\n' "$mlir_aie_version"
-printf '[W4A16 compile] scope: compile only; integration and NPU correctness remain\n'
+printf '[W4A16 compile] scope: front-end compile probe; the hardware-verified port (CPU-reference PASS, 5.94 TOPS at 2048^3) is examples/mlir-aie/w4a16_gemm\n'

@@ -24,6 +24,7 @@
 #                        python w4a16_gemm.py -M 512 -K 512 -N 512)
 import argparse
 import os
+import re
 import sys
 
 import numpy as np
@@ -49,6 +50,7 @@ from aie.utils.benchmark import print_benchmark, run_iters
 
 from packing import (
     TILE_BYTES,
+    assert_packed_for,
     dequantize,
     pack_b,
     random_awq_weights,
@@ -59,8 +61,28 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 
 # Kernel-fixed geometry (must match mix_int4_ATB.cc's -DDIM_* build)
 M_TILE, K_TILE, N_TILE = 64, 128, 64
-DIV = 2  # constexpr in mix_int4_ATB.cc: each call does m/DIV rows of the tile
 R = S = T = 8  # aie::mmul micro-kernel dims (8x8x8 bf16 on AIE2P)
+
+
+def _kernel_div():
+    """Read the kernel's ``constexpr int DIV`` out of the vendored source.
+
+    DIV couples two layers that cannot see each other: the kernel processes
+    m/DIV rows per call and its static ``g_counter`` cycles modulo DIV, while
+    the Python design sizes the A L1 half-tiles and the per-B-tile call count
+    to match.  The constexpr has no ``#ifndef`` guard, so it cannot be
+    overridden with ``-D`` without editing the byte-pinned vendored file —
+    deriving it from the source keeps the two sides from drifting silently.
+    """
+    with open(os.path.join(HERE, "mix_int4_ATB.cc")) as f:
+        m = re.search(r"^constexpr int DIV = (\d+);", f.read(), re.M)
+    if m is None:
+        raise RuntimeError("cannot find 'constexpr int DIV' in mix_int4_ATB.cc")
+    return int(m.group(1))
+
+
+DIV = _kernel_div()
+assert M_TILE % DIV == 0
 
 
 def _kernels():
@@ -80,7 +102,8 @@ def _kernels():
             f"-DDIM_N={N_TILE}",
             # Route the kernel's 8x8x8 bf16 aie::mmul through the AIE2P bfp16
             # datapath.  Without this, aie_api composes it from 1/4-rate
-            # native bf16 MACs: measured 0.94 vs 5.81 TOPS at 2048^3 — 6.2x.
+            # native bf16 MACs: 0.94 vs 5.81 TOPS at 2048^3 in the controlled
+            # A/B (6.2x); the final tuned run measures 5.94 (GOTCHAS M12).
             "-DAIE_API_EMULATE_BFLOAT16_MMUL_WITH_BFP16",
             "-Wno-missing-template-arg-list-after-template-kw",
         ],
@@ -103,6 +126,22 @@ def _build_design(M, K, N, n_aie_cols):
     assert n_aie_cols in (4, 8), (
         "this design keeps the stock per-shim A layout; <4 columns would "
         "need the stacked-row split (not implemented)"
+    )
+    # The runtime sequence pairs row-blocks ping/pong (tb_n_rows = 2), so the
+    # row-block count must be even — odd counts crash later inside
+    # TensorTiler2D.step_tiler with an opaque partial-group error.
+    assert (M // (m * n_aie_rows)) % 2 == 0, (
+        f"M={M}: M / (m*n_aie_rows) = {M // (m * n_aie_rows)} row blocks must "
+        f"be even (M a multiple of {2 * m * n_aie_rows})"
+    )
+    # The C write-back BD stride is m*n_aie_rows*N elements and must stay
+    # within the shim DMA's inclusive [1, 2^20] stride range (GOTCHAS M14);
+    # beyond it the design fails minutes later in aiecc with a cryptic
+    # 'Stride 3 exceeds the [1:1048576] range' verifier error.
+    assert m * n_aie_rows * N <= 1 << 20, (
+        f"N={N} too large: C write-back stride m*n_aie_rows*N = "
+        f"{m * n_aie_rows * N} exceeds the shim DMA stride range 2^20 "
+        f"(max N = {(1 << 20) // (m * n_aie_rows)} for m={m})"
     )
 
     n_tiles_per_core = (M // m) * (N // n) // n_aie_cores
@@ -174,9 +213,13 @@ def _build_design(M, K, N, n_aie_cols):
             zero(elem_out)
             for _ in range_(K // k):
                 elem_in_b = in_b.acquire(1)
-                # DIV calls per B tile: call 0 dequantizes into the L1
-                # weight cache and does rows [0, m/2); call 1 reuses the
-                # cache for rows [m/2, m) (kernel-internal g_counter).
+                # INVARIANT: matmul is called exactly DIV times per acquired
+                # B tile.  The kernel's static g_counter cycles modulo DIV
+                # (call 0 dequantizes the tile into the L1 weight cache and
+                # computes rows [0, m/DIV); later calls reuse the cache for
+                # the following row slices) and persists across calls — any
+                # other call count desyncs it permanently and silently
+                # corrupts every subsequent output tile on that core.
                 for _ in range(DIV):
                     elem_in_a = in_a.acquire(1)
                     matmul(elem_in_a, elem_in_b, elem_out)
@@ -290,9 +333,13 @@ def main():
     p.add_argument("--warmup", type=int, default=5)
     p.add_argument("--iters", type=int, default=20)
     p.add_argument("--seed", type=int, default=1726250518)
-    p.add_argument("--rtol", type=float, default=5e-2)
+    p.add_argument("--rtol", type=float, default=5e-2,
+                   help="PASS/FAIL bound on max |got - ref| / (|A| @ |B_dq|)")
     p.add_argument("--atol", type=float, default=5e-2,
-                   help="absolute floor paired with --rtol (bf16 output)")
+                   help="floors the |ref| denominator of the *printed* "
+                        "relative-error statistics only; it does not "
+                        "participate in the PASS/FAIL verdict (which is "
+                        "--rtol against the accumulation scale)")
     args = p.parse_args()
     M, K, N = args.M, args.K, args.N
 
@@ -316,6 +363,9 @@ def main():
     A_np = (rng.random((M, K), dtype=np.float32) - 0.5).astype(bfloat16)
     Bq, scales, zeros = random_awq_weights(K, N, rng)
     B_packed = pack_b(Bq, scales, zeros, args.n_aie_cols)
+    # The packed byte order depends on the column count and nothing at run
+    # time would catch a mismatch (same size, same dtype, silently wrong C).
+    assert_packed_for(B_packed, args.n_aie_cols)
 
     A_t = iron.tensor(A_np, dtype=bfloat16, device="npu")
     B_t = iron.tensor(B_packed.view(np.int8), dtype=np.int8, device="npu")

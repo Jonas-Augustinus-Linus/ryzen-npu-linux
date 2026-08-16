@@ -28,6 +28,7 @@ printf '[validate] shell syntax/executable bits: %d PASS\n' "${#shell_files[@]}"
 
 python3 - <<'PY'
 from pathlib import Path
+import hashlib
 import re
 import subprocess
 import sys
@@ -39,11 +40,15 @@ tracked = subprocess.check_output(
 tracked = [Path(name) for name in tracked if name]
 errors = []
 
-# Vendored byte-identical to an upstream commit and pinned by sha256
-# (scripts/check-w4a16-compile.sh); whitespace fixes would break the pins.
+# Vendored byte-identical to an upstream commit; the sha256 pins below must
+# match scripts/check-w4a16-compile.sh. Instead of style checks, these files
+# get a byte-identity assertion — it subsumes whitespace/newline/conflict
+# scanning and catches any formatter or merge damage outright.
 VENDORED = {
-    Path("examples/mlir-aie/w4a16_gemm/mix_int4_ATB.cc"),
-    Path("examples/mlir-aie/w4a16_gemm/zero.cc"),
+    Path("examples/mlir-aie/w4a16_gemm/mix_int4_ATB.cc"):
+        "9f89364479ca30d230cfb595a7bad04520ec49af514f7f6928282cc851ac1834",
+    Path("examples/mlir-aie/w4a16_gemm/zero.cc"):
+        "08c19f45a55d466ea47274cf4d19e8147f85ac35df9b2eed573a7f0b89412cea",
 }
 
 for path in tracked:
@@ -56,6 +61,13 @@ for path in tracked:
         errors.append(f"{path}: invalid UTF-8: {exc}")
         continue
     if path in VENDORED:
+        actual = hashlib.sha256(data).hexdigest()
+        if actual != VENDORED[path]:
+            errors.append(
+                f"{path}: vendored file modified (sha256 {actual} != pinned "
+                f"{VENDORED[path]}; byte-identity to the upstream commit is "
+                f"the provenance guarantee — see check-w4a16-compile.sh)"
+            )
         continue
     if data and not data.endswith(b"\n"):
         errors.append(f"{path}: missing final newline")
