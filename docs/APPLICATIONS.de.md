@@ -124,7 +124,7 @@ Forschungsweg ist:
 | [`npu-camera`](../examples/npu-camera/) | **Anwendungs-Plumbing:** GStreamer → persistente NPU → `v4l2loopback`; die NPU-Demooperation ist ein zweipassiger Box-Blur, keine Segmentierung. | Eine Stufe durch einen trainierten, unterstützten Vision-Block ersetzen; Resize, Compositing und Fallback auf CPU belassen. |
 | [`npu-runner`](../tools/npu-runner/) | **Repo-Hardware:** VMFB einmal laden und aus C oder Python wiederholt aufrufen, mit vollständiger Ausgabekontrolle. | Lokalen Daemon für gebündeltes Scoring, Sensorklassifikation oder einen wiederverwendbaren Model-Sidecar bauen. |
 | [`mlir-aie/relu_add`](../examples/mlir-aie/relu_add/) | **Direct-Kernel-Labor:** einsehbarer Spatial-Code und Mehrspaltenausführung. | Einen AMD-IRON-AIE2-Operator auf Phoenix reproduzieren und Platzierung, Transfers, CPU-Golden und erste fehlschlagende Form veröffentlichen. |
-| [`check-w4a16-compile.sh`](../scripts/check-w4a16-compile.sh) | **Nur kompiliert:** gepinnter externer W4A16-Frontend-Probe. | Lowering, Linken, Weight Packing, NPU-Ausführung und quantisierungsbewusste Korrektheit abschließen, bevor Leistung beansprucht wird. |
+| [`mlir-aie/w4a16_gemm`](../examples/mlir-aie/w4a16_gemm/) | **Repo-Hardware (`npu4`):** int4-AWQ-g128-Gewichte in-core dequantisiert, quantisierungsbewusster CPU-Referenz-PASS, 5,94 TOPS bei 2048³ auf 8 Spalten. | In einen echten quantisierten Modellpfad einbinden (die llama.cpp-Route bleibt offen), Energie messen und die Lücke zu den chess-kompilierten 9 TOPS schließen. |
 
 ## Weitere Anwendungsrichtungen
 

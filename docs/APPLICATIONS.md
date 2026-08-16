@@ -112,7 +112,7 @@ published results show why this is a research path rather than wishful thinking:
 | [`npu-camera`](../examples/npu-camera/) | **Application plumbing:** GStreamer → persistent NPU → `v4l2loopback`; the NPU demo operation is a two-pass box blur, not segmentation. | Replace one stage with a trained, supported vision block; keep resize, compositing and fallback on CPU. |
 | [`npu-runner`](../tools/npu-runner/) | **Repo hardware:** load a VMFB once and invoke it from C or Python, with complete-output checks. | Build a local daemon for batched scoring, sensor classification, or a reusable model sidecar. |
 | [`mlir-aie/relu_add`](../examples/mlir-aie/relu_add/) | **Direct-kernel laboratory:** inspectable spatial code and multi-column execution. | Reproduce one AMD IRON AIE2 operator on Phoenix, publish placement, transfers, CPU golden and first failing shape. |
-| [`check-w4a16-compile.sh`](../scripts/check-w4a16-compile.sh) | **Compile-only:** a pinned external W4A16 front-end probe. | Complete lowering, linking, weight packing, NPU execution and quantization-aware correctness before making performance claims. |
+| [`mlir-aie/w4a16_gemm`](../examples/mlir-aie/w4a16_gemm/) | **Repo hardware (`npu4`):** int4 AWQ-g128 weights dequantized in-core, quantization-aware CPU-reference PASS, 5.94 TOPS at 2048³ on 8 columns. | Wire it into a real quantized-model path (the llama.cpp route is still open), measure energy, and close the gap to the chess-compiled 9 TOPS. |
 
 ## More application directions
 

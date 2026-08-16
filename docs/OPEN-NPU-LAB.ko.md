@@ -136,7 +136,7 @@ upstream Phoenix 증거이지만 이 저장소의 고정 stack이나 7840U curre
 | [`examples/npu-camera/`](../examples/npu-camera/) | GStreamer → persistent NPU → `v4l2loopback` 배관이 원본 XDNA1 시연에서 30 fps로 실행됐습니다. `npu4` processing core는 정확성 검증을 했습니다. | NPU 연산은 2-pass 2D box blur이지 AI segmentation이 아닙니다. XDNA2에서는 전체 camera loop와 FPS를 재검증하지 않았습니다. |
 | [`tools/npu-trim/`](../tools/npu-trim/) | 그래프를 import 또는 screening하고, op를 분류하고, 깨끗한 matmul/conv 커널을 추출해 감지된 target으로 test-compile하며, 오래되거나 실패한 artifact는 거부합니다. | 임의의 모델을 다시 만들거나 실행하지 않습니다. 현재 Strix의 검증 경로는 matmul이며 conv 범위는 좁고 target에 따라 다릅니다. |
 | [`examples/mlir-aie/relu_add/`](../examples/mlir-aie/relu_add/)와 [IRON 안내서](MLIR-AIE.ko.md) | 직접 작성한 spatial kernel과 업스트림 ML 예제입니다. 현재 mlir-aie 1.4.1 경로는 8-column Strix에서 하드웨어 검증됐고, 이전 XDNA1 예제는 당시 snapshot으로 실행됐습니다. | 현재 mlir-aie 1.4.x를 이 저장소의 XDNA1에서 다시 실행하지 않았습니다. 두 snapshot을 하나의 주장으로 합치면 안 됩니다. |
-| [`scripts/check-w4a16-compile.sh`](../scripts/check-w4a16-compile.sh) | 고정된 버전으로 재현 가능한 W4A16 front-end compile probe입니다. | **컴파일 전용:** 전체 lowering, link, NPU 실행, 수치 정확성, 성능을 주장하지 않습니다. |
+| [`examples/mlir-aie/w4a16_gemm/`](../examples/mlir-aie/w4a16_gemm/)와 [`scripts/check-w4a16-compile.sh`](../scripts/check-w4a16-compile.sh) | 고정된 compile probe가 실기 검증된 W4A16 GEMM으로 성장했습니다: int4 AWQ-g128 가중치를 in-core dequant, 512³/2048³ CPU 참조 PASS, 8-column Strix array에서 5.94 TOPS. | Strix Point의 커널 수준 증거일 뿐입니다: whole-model 통합과 energy 측정은 없고, chess 컴파일 9 TOPS 참조치가 이 Peano 빌드보다 앞서 있습니다. |
 
 원본 XDNA1 runner 기록과 현재 XDNA2 acceptance 기록은 이 라벨의 실제 의미를
 보여 줍니다.
@@ -211,7 +211,7 @@ pin, 최소 reproducer가 있는 부정적 결과도 실험실을 전진시킵�
 | accessibility trigger | 표준 Linux event를 내보내는 학습된 sound, gesture, presence 또는 UI classifier | 프로젝트 아이디어입니다. wake-word나 camera 배관을 재사용하고 실제 training/evaluation data를 제공해야 합니다. |
 | smart virtual camera | NPU의 지원 conv 단계, CPU compositing, `v4l2loopback` 출력 | 배관은 있지만 현재 demo는 box blur입니다. model conv는 shape별 검증이 필요합니다. |
 | private media indexer | 작은 CNN 또는 projection 단계로 tag/embedding을 만들고 CPU에서 저장·검색 | 프로젝트 아이디어입니다. 모든 model partition을 검증하고 CPU fallback을 유지해야 합니다. |
-| quantized block 실험실 | W8/W4 matmul + dequantization, CPU golden, error·energy sweep | 현재 W4A16은 compile-only입니다. 하드웨어 실행은 열린 milestone입니다. |
+| quantized block 실험실 | W8/W4 matmul + dequantization, CPU golden, error·energy sweep | W4A16은 이제 실기 검증되어 5.94 TOPS로 실행됩니다([`w4a16_gemm`](../examples/mlir-aie/w4a16_gemm/)). energy sweep과 다른 bit-width가 열린 milestone입니다. |
 | 세대 교차 benchmark | 같은 source, 장치별 build, 전체 출력 검증, latency/energy 표 | XDNA1 이전 증거와 현재 Strix 증거가 있습니다. same-pin XDNA1과 미래 장치 행은 비어 있습니다. |
 | compiler boundary 지도 | 통과/실패 shape와 op를 script로 축소하고 upstream에 보고 | 알려진 bfp16 누적 및 conv 경계가 이미 문서화되어 있습니다. 더 많은 장치를 기다립니다. |
 
@@ -300,8 +300,9 @@ log가 포함됩니다. “이 정확한 지점에서 실패”도 일급 결과
 - wake-word weight와 ONNX MLP는 합성 템플릿입니다. camera 경로는 segmentation
   network가 아니라 box blur를 사용합니다. 실행과 통합 surface를 증명할 뿐,
   production model 품질을 증명하지 않습니다.
-- W4A16은 compile-only입니다. 현재 양자화 모델 작업은 검증된 NPU runtime이
-  아닙니다.
+- W4A16은 검증된 커널이지 model runtime이 아닙니다: 양자화 GEMM이 Strix
+  Point에서 5.94 TOPS로 CPU 참조를 통과했지만, 양자화 *모델*이 이를 통해
+  end-to-end로 실행되지는 않습니다.
 - XDNA1에서 임의의 LLM, GGUF, PyTorch, ONNX model이 이 저장소를 통해
   end-to-end로 실행되지는 않습니다. 미지원 op와 CPU fallback은 눈에 보여야
   합니다.

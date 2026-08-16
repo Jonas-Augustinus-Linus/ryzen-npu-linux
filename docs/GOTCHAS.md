@@ -399,8 +399,9 @@ bfloat16>` directly (like the vendored TileFuse W4A16 kernel) compiles and
 runs correctly either way — but without
 `-DAIE_API_EMULATE_BFLOAT16_MMUL_WITH_BFP16` aie_api composes the 8×8×8 shape
 from ¼-rate native bf16 MACs instead of the bfp16 datapath. Measured on the
-W4A16 GEMM at 2048³: **0.94 vs 5.94 TOPS — 6.2×** from that one define. There
-is no warning; only a benchmark exposes it.
+W4A16 GEMM at 2048³ in a controlled A/B (same session, 10 iterations):
+**0.94 vs 5.81 TOPS — 6.2×** from that one define; the example's final tuned
+run measures 5.94. There is no warning; only a benchmark exposes it.
 
 ## M13. `ExternalFunction` compile_flags changes don't invalidate the `@iron.jit` cache
 
@@ -425,6 +426,7 @@ exceeds them — a design can verify at 512³ and fail to *compile* at 2048³:
 - A shim tile has **16 BDs**; the stock whole-array ping-pong keeps two
   transfer blocks in flight, so more than ~5 fills/drains per column per
   block exhausts them (`Too many simultaneously active buffer descriptors`).
-- BD strides must stay **< 2²⁰ elements** (`Stride 3 exceeds the [1:1048576]
-  range`): the whole-array C write-back stride is `m·4·N`, capping N at 4096
-  for m = 64.
+- BD strides must stay **≤ 2²⁰ elements** (`Stride 3 exceeds the [1:1048576]
+  range` — the range is inclusive): the whole-array C write-back stride is
+  `m·4·N`, capping N at 4096 for m = 64 (the verified N = 4096 stride is
+  exactly 2²⁰).

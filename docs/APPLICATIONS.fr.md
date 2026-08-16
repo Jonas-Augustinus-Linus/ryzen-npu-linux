@@ -120,7 +120,7 @@ voie de recherche :
 | [`npu-camera`](../examples/npu-camera/) | **Plomberie applicative :** GStreamer → NPU persistante → `v4l2loopback` ; l'opération NPU de démonstration est un flou rectangulaire à deux passes, pas une segmentation. | Remplacer une étape par un bloc vision entraîné et pris en charge ; conserver resize, composition et fallback sur CPU. |
 | [`npu-runner`](../tools/npu-runner/) | **Matériel du dépôt :** charger un VMFB une fois et l'invoquer depuis C ou Python, avec contrôle de toute la sortie. | Construire un daemon local de scoring groupé, classification de capteurs ou sidecar de modèle réutilisable. |
 | [`mlir-aie/relu_add`](../examples/mlir-aie/relu_add/) | **Laboratoire de noyaux directs :** code spatial inspectable et exécution multi-colonnes. | Reproduire un opérateur AIE2 d'AMD IRON sur Phoenix et publier placement, transferts, référence CPU et première forme en échec. |
-| [`check-w4a16-compile.sh`](../scripts/check-w4a16-compile.sh) | **Compilation seule :** sonde front-end W4A16 externe épinglée. | Terminer lowering, édition de liens, empaquetage des poids, exécution NPU et justesse tenant compte de la quantification avant toute affirmation de performance. |
+| [`mlir-aie/w4a16_gemm`](../examples/mlir-aie/w4a16_gemm/) | **Matériel du dépôt (`npu4`) :** poids int4 AWQ-g128 déquantifiés in-core, PASS face à la référence CPU tenant compte de la quantification, 5,94 TOPS à 2048³ sur 8 colonnes. | Le brancher sur un vrai chemin de modèle quantifié (la route llama.cpp reste ouverte), mesurer l'énergie et combler l'écart avec les 9 TOPS compilés avec chess. |
 
 ## Autres directions applicatives
 

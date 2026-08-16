@@ -110,7 +110,7 @@ NPU が LLM 全体を serve しなくても、NPU の仕事には価値があり
 | [`npu-camera`](../examples/npu-camera/) | **アプリ配管:** GStreamer → persistent NPU → `v4l2loopback`。NPU demo 演算は two-pass box blur であり segmentation ではない。 | 一段を学習済み対応 vision block に置換し、resize、composite、fallback は CPU に保つ。 |
 | [`npu-runner`](../tools/npu-runner/) | **repo 実機:** VMFB を一度 load して C/Python から反復 invoke し、全出力を検査。 | batch scoring、sensor 分類、再利用可能 model sidecar の local daemon を作る。 |
 | [`mlir-aie/relu_add`](../examples/mlir-aie/relu_add/) | **direct-kernel laboratory:** 検査可能な spatial code と multi-column 実行。 | AMD IRON AIE2 op 一つを Phoenix で再現し、配置、transfer、CPU golden、最初の失敗 shape を公開する。 |
-| [`check-w4a16-compile.sh`](../scripts/check-w4a16-compile.sh) | **compile-only:** 固定済み外部 W4A16 front-end probe。 | 性能を主張する前に lowering、link、weight packing、NPU 実行、量子化を考慮した正しさを完成させる。 |
+| [`mlir-aie/w4a16_gemm`](../examples/mlir-aie/w4a16_gemm/) | **repo 実機（`npu4`）:** int4 AWQ-g128 重みを in-core dequant、量子化を考慮した CPU 参照 PASS、8 column の 2048³ で 5.94 TOPS。 | 実際の量子化モデル経路へ接続し（llama.cpp ルートは未着手）、energy を計測し、chess コンパイル 9 TOPS との差を詰める。 |
 
 ## ほかのアプリケーション方向
 

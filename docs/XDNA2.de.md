@@ -308,18 +308,22 @@ Reproduzieren und Erweitern, keine Benchmarks dieses Repos.
    wert ist.** Das verlinkte llama.cpp-Ticket #21725 enthält kein stützendes
    Primärexperiment und kein Rohlog; dieses Repository erhebt daher **keinen
    10×-Decode-Anspruch**.
-   **Repo-Status: nur kompiliert (2026-08-15):** TileFuses fusionierter
-   Dequant+GEMM-Kernel (`mix_int4_ATB.cc`) **kompiliert sauber mit Peano für
-   `aie2p` gegen die mlir-aie-1.4.1-Header** (`-Dbf16_bf16_ONLY`,
-   m64/k128/n64 → `matmul_bf16_bf16`). Damit ist für diese Spezialisierung
-   eine Frontend-Compile-Hürde genommen; die Portierung ist damit **nicht**
-   fertig. IRON/ObjectFifo-Integration, Linken, Platzierung, ABI-Abgleich,
-   hostseitiges Weight-Packing, NPU-Ausführung und numerische Verifikation
-   stehen noch aus. Das gepinnte
+   **Repo-Status — ✅ hardware-verifiziert (2026-08-16):** TileFuses
+   fusionierter Dequant+GEMM-Kernel (`mix_int4_ATB.cc`, byte-identisch vom
+   gepinnten Fork-Commit übernommen) **läuft jetzt auf dieser
+   Strix-Maschine**, in einem repo-eigenen IRON-1.4.x-Whole-Array-Design,
+   nur mit Peano —
+   [`examples/mlir-aie/w4a16_gemm`](../examples/mlir-aie/w4a16_gemm/):
+   hostseitiges AWQ-g128-Packing (4352 B/Tile), In-Core-Dequant in einen
+   16-KB-weight-stationary-L1-Cache, CPU-Referenz-**PASS** bei 512³ und
+   2048³ (max. Fehler ≈ 9·10⁻³ der Akkumulationsskala), **5,94 TOPS** bei
+   2048³ auf 8 Spalten (+28 % gegenüber der 4,64-TFLOPS-bf16-Baseline des
+   Repos, ~66 % von TileFuses chess-kompilierten 9 TOPS) und 6,24 TOPS bei
+   2048×4096×4096. Das gepinnte
    [`check-w4a16-compile.sh`](../scripts/check-w4a16-compile.sh) hält
-   den externen Quell-Commit, Prüfsummen und die exakten Frontend-Flags fest.
-   Es gibt kein W4A16-Hardware-, Korrektheits-, Durchsatz- oder Energieergebnis
-   dieses Repos.
+   weiterhin den externen Quell-Commit, Prüfsummen und Frontend-Flags fest;
+   das Beispiel-README dokumentiert die drei neuen Gotchas (M12–M14). Energie
+   bleibt ungemessen, eine llama.cpp-Integration bleibt offen.
 
 *Status: Seite hinzugefügt am 2026-08-15; Aktivierung, Direct-Kernel-Compute und die
 IREE-`npu4`-Portierung samt Korrektheit gegen die CPU-Referenz wurden am selben

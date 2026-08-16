@@ -47,8 +47,15 @@ Column scaling 4→8 is 1.99× — the design is compute-bound, not DMA-bound.
   by Peano for `aie2p` with `-Dbf16_bf16_ONLY -DDIM_M=64 -DDIM_K=128
   -DDIM_N=64 -DAIE_API_EMULATE_BFLOAT16_MMUL_WITH_BFP16`.
 - [`packing.py`](packing.py) — NumPy packer producing the exact per-tile byte
-  layout the kernel reads (verified bit-exact against a scalar model of the
-  kernel's load path), plus the dequant + tile-faithful references.
+  layout the kernel reads, plus the dequant + tile-faithful references. The
+  returned blob is tagged with the column count it was packed for
+  (`assert_packed_for` turns a blob/design column mismatch — same size, same
+  dtype, silently wrong C — into a loud error).
+- [`test_packing.py`](test_packing.py) — bit-exactness harness: rebuilds the
+  dequantized weights by walking the kernel's exact load path (nibble order,
+  `grow_replicate` zero-points/scales, bf16 rounding points) over the packed
+  blob and requires bit-identity with `packing.dequantize()`, including a
+  non-identity column ordering. CPU-only: `python test_packing.py`.
 - [`w4a16_gemm.py`](w4a16_gemm.py) — the IRON 1.4.x whole-array design and
   host driver (verify + benchmark).
 
@@ -107,20 +114,21 @@ float32, with dequantization modeled exactly as the kernel does it
 ./run.sh -M 2048 -K 2048 -N 2048 --n-aie-cols 4
 ```
 
-Shape constraints: `M % 256 == 0` with `M/256` even, `K % 128 == 0` (whole
-AWQ groups), `N % (64 × columns) == 0`, and `N ≤ 4096` (the C write-back
-stride `m·4·N` must stay within the shim DMA's 2²⁰ stride limit).
-`--n-aie-cols` supports 4 and 8; fewer than 4 columns would need the
-stacked-row A split, which this design does not implement.
+Shape constraints (all enforced as clear asserts in the design): `M % 256 ==
+0` with `M/256` even, `K % 128 == 0` (whole AWQ groups), `N % (64 × columns)
+== 0`, and `N ≤ 4096` (the C write-back stride `m·4·N` must stay within the
+shim DMA's inclusive 2²⁰ stride range). `--n-aie-cols` supports 4 and 8;
+fewer than 4 columns would need the stacked-row A split, which this design
+does not implement.
 
 ## Gotchas found while building this (full detail in [GOTCHAS](../../../docs/GOTCHAS.md))
 
 - Without `-DAIE_API_EMULATE_BFLOAT16_MMUL_WITH_BFP16` the kernel's 8×8×8
   bf16 `aie::mmul` compiles fine but lowers through ¼-rate native bf16 MACs:
-  0.94 TOPS instead of 5.94 at 2048³.
+  0.94 vs 5.81 TOPS at 2048³ in the controlled A/B — 6.2×.
 - Changing an `ExternalFunction`'s `compile_flags` inside a helper function
   does **not** invalidate the `@iron.jit` cache — clear `~/.npu/cache` (or
   rename the object file) when toggling kernel defines.
 - Shim-DMA expressibility limits surface as aiecc errors only at larger
   shapes: ≤ 4 BD dims (highest = repeat), 16 BDs per shim tile, strides
-  < 2²⁰ elements.
+  ≤ 2²⁰ elements (inclusive — the verified N=4096 C stride is exactly 2²⁰).

@@ -12,8 +12,8 @@ All notable public-release changes are documented here.
   commit, ported from compile-only status to a repo-owned IRON 1.4.x design
   with Peano only. Includes a NumPy weight packer producing the exact
   4352-byte per-tile layout (verified bit-exact against the kernel's read
-  path) and a CPU-reference verifier bounding error against the
-  accumulation scale.
+  path by the shipped `test_packing.py` harness) and a CPU-reference
+  verifier bounding error against the accumulation scale.
 - GOTCHAS M12–M14: the ¼-rate 8×8×8 bf16 `aie::mmul` without the bfp16
   emulation define (6.2× measured), `ExternalFunction` compile-flag changes
   not invalidating the `@iron.jit` cache, and three shim-DMA expressibility

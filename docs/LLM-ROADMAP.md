@@ -93,9 +93,11 @@ earlier 7840U evidence or silently promote it to a current result.
 
 ### XDNA2 and later: explore without abandoning the evidence contract
 
-1. Finish W4A16 from compile-only through link, hardware execution, and a
-   quantization-aware CPU golden; compare W8 and bf16 rather than assuming one
-   format wins.
+1. ~~Finish W4A16 from compile-only through link, hardware execution, and a
+   quantization-aware CPU golden~~ — **done**
+   ([`w4a16_gemm`](../examples/mlir-aie/w4a16_gemm/): CPU-reference PASS,
+   5.94 TOPS at 2048³ on 8 columns). Next: compare W8 and bf16 rather than
+   assuming one format wins, and measure energy.
 2. Compose GEMM, attention/softmax, RoPE, RMSNorm, SwiGLU, residuals, and
    dequantization into fused transformer blocks that avoid round-trips.
 3. Add KV-cache ownership, dynamic sequence handling, batching, cancellation,
