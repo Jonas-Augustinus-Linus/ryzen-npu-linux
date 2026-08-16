@@ -390,3 +390,41 @@ between K tiles; this explains the K dependence but is not yet a proven fix.
 Always require a CPU-reference **PASS** before reporting native-bfp throughput.
 [`check-bfp16-correctness.sh`](../scripts/check-bfp16-correctness.sh) reproduces
 and asserts the known boundary.
+
+## M12. An 8×8×8 bf16 `aie::mmul` silently compiles at ¼ rate without the bfp16 define
+
+M10's `--emulate-bf16-mmul-with-bfp16` flag only reaches the *stock* matmul
+kernels. A **custom** kernel that instantiates `aie::mmul<8, 8, 8, bfloat16,
+bfloat16>` directly (like the vendored TileFuse W4A16 kernel) compiles and
+runs correctly either way — but without
+`-DAIE_API_EMULATE_BFLOAT16_MMUL_WITH_BFP16` aie_api composes the 8×8×8 shape
+from ¼-rate native bf16 MACs instead of the bfp16 datapath. Measured on the
+W4A16 GEMM at 2048³: **0.94 vs 5.94 TOPS — 6.2×** from that one define. There
+is no warning; only a benchmark exposes it.
+
+## M13. `ExternalFunction` compile_flags changes don't invalidate the `@iron.jit` cache
+
+The jit recipe hash covers the *design function's* bytecode, its
+`CompileTime` kwargs, and the `aiecc_flags`/`compile_flags` passed to
+`@iron.jit` itself — plus source/object **mtimes**. The `compile_flags` of an
+`ExternalFunction` constructed inside a helper are not part of any of those,
+so toggling a kernel define (e.g. the M12 fix) quietly reruns the **stale
+cached binary**. Fix: `rm -rf ~/.npu/cache`, or give the variant a distinct
+`object_file_name=`, or touch the kernel source file.
+
+## M14. Shim-DMA expressibility limits appear only at larger shapes
+
+Three hardware limits that aiecc only reports once a runtime tap actually
+exceeds them — a design can verify at 512³ and fail to *compile* at 2048³:
+
+- A buffer descriptor has **4 dimensions and the highest is a repeat count**
+  (`aie.dma_bd op Buffer descriptor length does not match...`): a strided
+  multi-row tap whose row itself needs two dims (e.g. a 69 632-byte packed
+  weight row) no longer fits. Restructure the DRAM layout so each fill is
+  contiguous.
+- A shim tile has **16 BDs**; the stock whole-array ping-pong keeps two
+  transfer blocks in flight, so more than ~5 fills/drains per column per
+  block exhausts them (`Too many simultaneously active buffer descriptors`).
+- BD strides must stay **< 2²⁰ elements** (`Stride 3 exceeds the [1:1048576]
+  range`): the whole-array C write-back stride is `m·4·N`, capping N at 4096
+  for m = 64.

@@ -39,6 +39,13 @@ tracked = subprocess.check_output(
 tracked = [Path(name) for name in tracked if name]
 errors = []
 
+# Vendored byte-identical to an upstream commit and pinned by sha256
+# (scripts/check-w4a16-compile.sh); whitespace fixes would break the pins.
+VENDORED = {
+    Path("examples/mlir-aie/w4a16_gemm/mix_int4_ATB.cc"),
+    Path("examples/mlir-aie/w4a16_gemm/zero.cc"),
+}
+
 for path in tracked:
     data = path.read_bytes()
     if path.suffix.lower() in {".gif", ".png", ".jpg", ".jpeg", ".webp", ".ico", ".pdf"}:
@@ -47,6 +54,8 @@ for path in tracked:
         text = data.decode("utf-8")
     except UnicodeDecodeError as exc:
         errors.append(f"{path}: invalid UTF-8: {exc}")
+        continue
+    if path in VENDORED:
         continue
     if data and not data.endswith(b"\n"):
         errors.append(f"{path}: missing final newline")

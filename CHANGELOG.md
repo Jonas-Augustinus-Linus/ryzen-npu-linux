@@ -2,6 +2,33 @@
 
 All notable public-release changes are documented here.
 
+## [Unreleased]
+
+### Added
+
+- `examples/mlir-aie/w4a16_gemm`: a W4A16 quantized GEMM (int4 AWQ group-128
+  weights, bf16 activations) on the whole 4×8 XDNA2 array — the TileFuse
+  fused dequant+GEMM kernel, vendored byte-identical from the pinned external
+  commit, ported from compile-only status to a repo-owned IRON 1.4.x design
+  with Peano only. Includes a NumPy weight packer producing the exact
+  4352-byte per-tile layout (verified bit-exact against the kernel's read
+  path) and a CPU-reference verifier bounding error against the
+  accumulation scale.
+- GOTCHAS M12–M14: the ¼-rate 8×8×8 bf16 `aie::mmul` without the bfp16
+  emulation define (6.2× measured), `ExternalFunction` compile-flag changes
+  not invalidating the `@iron.jit` cache, and three shim-DMA expressibility
+  limits that only appear at larger shapes.
+
+### Verified on Strix Point
+
+- W4A16 GEMM CPU-reference PASS at 512³, 2048³ (4 and 8 columns), and
+  2048×4096×4096; maximum elementwise error ≈ 9·10⁻³ of the |A|·|B|
+  accumulation scale. Throughput 5.94 TOPS at 2048³ and 6.24 TOPS at
+  2048×4096×4096 on 8 columns — +28% over the repo's 4.64 TFLOPS
+  bf16-via-bfp16 baseline with 3.76× less weight DRAM traffic; column
+  scaling 4→8 is 1.99×. TileFuse's chess-compiled 9 TOPS remains the
+  reference point for the open Peano scheduling gap. No energy measurement.
+
 ## [1.1.0] - 2026-08-16
 
 This release turns the verified compute toolkit into an **Open NPU Lab**: a
