@@ -56,17 +56,21 @@ def dequantize(Bq, scales, zeros):
     return ((Bq.astype(np.float32) - z) * s).astype(bfloat16)
 
 
-def pack_b(Bq, scales, zeros):
+def pack_b(Bq, scales, zeros, n_aie_cols=8):
     """Pack (K, N) quantized weights into the flat DRAM byte stream.
 
-    DRAM order is tile-column-major: for each n-tile j (N//TILE_N of them),
-    all K//TILE_K packed 4352-byte tiles in k order, contiguously.  The
-    design's per-column runtime taps slice this as a 2D view of shape
-    (N//TILE_N, K//TILE_K * TILE_BYTES).
+    Tiles are laid out so each AIE column's whole per-pass B stream is one
+    contiguous run (a single simple buffer descriptor per fill): the n-tile
+    rows are ordered [col][jj] where column `col` computes n-tiles
+    j = col + jj * n_aie_cols, and within each n-tile row all K//TILE_K
+    packed 4352-byte tiles appear in k order.  The design's per-column taps
+    view this as shape (n_aie_cols, N//TILE_N//n_aie_cols * K//TILE_K *
+    TILE_BYTES); the layout therefore depends on the deployed column count.
     """
     K, N = Bq.shape
     assert K % TILE_K == 0 and N % TILE_N == 0
     n_kt, n_nt = K // TILE_K, N // TILE_N
+    assert n_nt % n_aie_cols == 0
     out = np.empty((n_nt, n_kt, TILE_BYTES), dtype=np.uint8)
     for jt in range(n_nt):
         for it in range(n_kt):
@@ -80,7 +84,12 @@ def pack_b(Bq, scales, zeros):
             out[jt, it, :4096] = data
             out[jt, it, 4096:4224] = sc.view(np.uint8)
             out[jt, it, 4224:] = zp_dup.astype(np.uint8)
-    return out.reshape(-1)
+    order = [
+        col + jj * n_aie_cols
+        for col in range(n_aie_cols)
+        for jj in range(n_nt // n_aie_cols)
+    ]
+    return out[order].reshape(-1)
 
 
 def reference_matmul(A, Bdq, tilewise_bf16=False, tile_k=TILE_K):
