@@ -293,16 +293,21 @@ CPU/GPU energy の数値は別の HX 370/**XDNA2** 実験であり、XDNA1 port 
    Ubuntu の XRT とは別のスタックである）。**64 KiB buffer alignment は、検証する
    価値のある benchmark hypothesis に留まる。** リンクした llama.cpp #21725 には
    裏付けとなる一次実験や raw log がないため、この repo は **10× decode を主張しない**。
-   **repo status は compile-only（2026-08-15）**: TileFuse の融合
-   dequant+GEMM カーネル（`mix_int4_ATB.cc`）は **mlir-aie 1.4.1 のヘッダに
-   対して Peano の `aie2p` ターゲットでクリーンにコンパイルできる**
-   （`-Dbf16_bf16_ONLY`、m64/k128/n64 → `matmul_bf16_bf16`）。これはこの
-   特殊化についてフロントエンドのコンパイル障壁を 1 つ越えただけで、移植の
-   完了では **ない**。IRON/ObjectFifo 統合、リンク、配置、ABI 整合、ホスト側の
-   重みパッキング、NPU 実行、数値検証がすべて残っている。固定済みの
-   [`check-w4a16-compile.sh`](../scripts/check-w4a16-compile.sh) にソース
-   外部 source commit、checksum、正確な front-end flag を記録している。repo には
-   W4A16 の実機実行、正しさ、throughput、energy 結果はない。
+   **repo status — ✅ 実機検証済み（2026-08-16）**: TileFuse の融合
+   dequant+GEMM カーネル（`mix_int4_ATB.cc`、固定した fork commit から
+   バイト同一で vendoring）が、repo 所有の IRON 1.4.x whole-array デザイン
+   （Peano のみ）で **この Strix 実機上で動作するようになった** —
+   [`examples/mlir-aie/w4a16_gemm`](../examples/mlir-aie/w4a16_gemm/)。
+   ホスト側 AWQ-g128 パッキング（タイルあたり 4352 B）、16 KB
+   weight-stationary L1 キャッシュへの in-core dequant、512³・2048³ で CPU
+   参照 **PASS**（最大誤差 ≈ 累積スケールの 9·10⁻³）、8 column の 2048³ で
+   **5.94 TOPS**（repo の 4.64 TFLOPS bf16 baseline 比 +28%、TileFuse の
+   chess コンパイル 9 TOPS の約 66%）、2048×4096×4096 で 6.24 TOPS。
+   固定済みの
+   [`check-w4a16-compile.sh`](../scripts/check-w4a16-compile.sh) は引き続き
+   外部 source commit、checksum、front-end flag を記録し、例の README が
+   新しい gotcha 3 件（M12–M14）を文書化している。energy は未計測で、
+   llama.cpp 統合も未着手のままである。
 
 *ステータス: このページは 2026-08-15 に追加。有効化、direct-kernel compute、
 CPU 参照正しさを含む IREE `npu4` 移植を、同日上記の Strix Point 実機で

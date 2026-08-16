@@ -110,7 +110,7 @@ NPU가 LLM 전체를 서빙하지 않아도 NPU가 맡은 일은 충분히 유�
 | [`npu-camera`](../examples/npu-camera/) | **애플리케이션 배관:** GStreamer → persistent NPU → `v4l2loopback`. NPU demo 연산은 2-pass box blur이지 segmentation이 아닙니다. | 한 단계를 학습된 지원 vision block으로 바꾸고 resize, compositing, fallback은 CPU에 남기십시오. |
 | [`npu-runner`](../tools/npu-runner/) | **저장소 실기:** VMFB를 한 번 load하고 C 또는 Python에서 반복 호출하며 전체 출력을 검사합니다. | batch scoring, sensor 분류, 재사용 가능한 model sidecar용 local daemon을 만드십시오. |
 | [`mlir-aie/relu_add`](../examples/mlir-aie/relu_add/) | **direct-kernel 연구실:** 들여다볼 수 있는 spatial code와 multi-column 실행입니다. | AMD IRON의 AIE2 op 하나를 Phoenix에서 재현하고, 배치, transfer, CPU golden, 최초 실패 shape를 공개하십시오. |
-| [`check-w4a16-compile.sh`](../scripts/check-w4a16-compile.sh) | **컴파일 전용:** 고정된 외부 W4A16 front-end probe입니다. | 성능을 주장하기 전에 lowering, linking, weight packing, NPU 실행, 양자화를 고려한 정확성을 완성하십시오. |
+| [`mlir-aie/w4a16_gemm`](../examples/mlir-aie/w4a16_gemm/) | **저장소 하드웨어(`npu4`):** int4 AWQ-g128 가중치를 in-core dequant, 양자화를 고려한 CPU 참조 PASS, 8 column에서 2048³ 5.94 TOPS. | 실제 양자화 모델 경로에 연결하고(llama.cpp 경로는 아직 열려 있음), energy를 측정하고, chess 컴파일 9 TOPS와의 격차를 좁히십시오. |
 
 ## 더 넓은 애플리케이션 방향
 

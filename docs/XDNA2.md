@@ -131,6 +131,11 @@ Full tables in [MLIR-AIE.md](MLIR-AIE.md); headlines:
   not the separate moving `amd/IRON` operator dashboard.
 - Our custom `relu(a+b)` kernel ported to the mlir-aie 1.4.1 IRON API scales
   **8.0× on 8 columns** (`transform_parallel_binary`), 11.2 GB/s effective.
+- **W4A16 quantized GEMM (2026-08-16)**: the TileFuse int4-AWQ fused
+  dequant+GEMM kernel runs in a repo-owned IRON whole-array design, Peano
+  only — CPU-reference PASS at 512³/2048³ and **5.94 TOPS** at 2048³
+  (+28% over the bf16 baseline); see
+  [`examples/mlir-aie/w4a16_gemm`](../examples/mlir-aie/w4a16_gemm/).
 
 ### ✅ IREE: CPU-reference correctness on `npu4` (separate track)
 
@@ -295,16 +300,20 @@ published results to reproduce and extend, not benchmarks owned by this repo.
    **64 KiB buffer alignment remains a benchmark hypothesis worth testing.**
    The linked llama.cpp #21725 does not provide a supporting primary experiment
    or raw log; this repository therefore makes **no 10× decode claim**.
-   **Repo status is compile-only (2026-08-15):** TileFuse's fused
-   dequant+GEMM kernel (`mix_int4_ATB.cc`) **compiles cleanly with Peano for
-   `aie2p` against mlir-aie 1.4.1 headers** (`-Dbf16_bf16_ONLY`,
-   m64/k128/n64 → `matmul_bf16_bf16`). That clears one front-end compile
-   barrier for this specialization; it does **not** complete the port.
-   IRON/ObjectFifo integration, linking, placement, ABI matching, host-side
-   weight packing, NPU execution, and numerical verification all remain. The
-   pinned [`check-w4a16-compile.sh`](../scripts/check-w4a16-compile.sh) records
-   the external source commit, checksums, and exact front-end flags. There is no
-   repo W4A16 hardware execution, correctness, throughput, or energy result.
+   **Repo status — ✅ hardware-verified (2026-08-16):** the TileFuse fused
+   dequant+GEMM kernel (`mix_int4_ATB.cc`, vendored byte-identical from the
+   pinned fork commit) now **runs on this Strix machine** inside a repo-owned
+   IRON 1.4.x whole-array design with Peano only —
+   [`examples/mlir-aie/w4a16_gemm`](../examples/mlir-aie/w4a16_gemm/):
+   host-side AWQ-g128 packing (4352 B/tile), in-core dequant into a 16 KB
+   weight-stationary L1 cache, CPU-reference **PASS** at 512³ and 2048³
+   (max error ≈ 9·10⁻³ of the accumulation scale), **5.94 TOPS** at 2048³ on
+   8 columns (+28% over the repo's 4.64 TFLOPS bf16 baseline, ~66% of
+   TileFuse's chess-compiled 9 TOPS) and 6.24 TOPS at 2048×4096×4096. The
+   pinned [`check-w4a16-compile.sh`](../scripts/check-w4a16-compile.sh) still
+   records the external source commit, checksums, and front-end flags; the
+   example README documents the three new gotchas (M12–M14). Energy remains
+   unmeasured, and a llama.cpp integration remains open.
 
 *Status: page added 2026-08-15; activation, direct-kernel compute, and the IREE `npu4`
 port with CPU-reference correctness were verified the same day on the Strix

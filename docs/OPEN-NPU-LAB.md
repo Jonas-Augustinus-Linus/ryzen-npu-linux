@@ -137,7 +137,7 @@ The source gallery below is both an invitation and a bill of materials.
 | [`examples/npu-camera/`](../examples/npu-camera/) | GStreamer → persistent NPU → `v4l2loopback` plumbing ran at 30 fps in the original XDNA1 demonstration. The `npu4` processing core is correctness-tested. | The NPU operation is a two-pass 2D box blur, not AI segmentation. The complete camera loop and FPS have not been revalidated on XDNA2. |
 | [`tools/npu-trim/`](../tools/npu-trim/) | Imports or screens a graph, classifies operators, extracts clean matmul/conv kernels, test-compiles them for the detected target, and rejects stale or failed artifacts. | It does not rebuild or run an arbitrary model. On current Strix, matmul is the verified route; conv coverage remains narrow and target-dependent. |
 | [`examples/mlir-aie/relu_add/`](../examples/mlir-aie/relu_add/) and the [IRON guide](MLIR-AIE.md) | Directly authored spatial kernels and upstream ML examples. The current mlir-aie 1.4.1 path is hardware-verified on eight-column Strix; earlier XDNA1 examples ran with their then-current snapshot. | Current mlir-aie 1.4.x has not been rerun on XDNA1 in this repository. Do not merge the two snapshots into one claim. |
-| [`scripts/check-w4a16-compile.sh`](../scripts/check-w4a16-compile.sh) | A pinned, reproducible W4A16 front-end compilation probe. | **Compile-only:** no full lowering, link, NPU execution, numerical correctness, or performance claim. |
+| [`examples/mlir-aie/w4a16_gemm/`](../examples/mlir-aie/w4a16_gemm/) and [`scripts/check-w4a16-compile.sh`](../scripts/check-w4a16-compile.sh) | The pinned compile probe grew into a hardware-verified W4A16 GEMM: int4 AWQ-g128 weights dequantized in-core, CPU-reference PASS at 512³/2048³, 5.94 TOPS on the 8-column Strix array. | Kernel-level evidence on Strix Point only: no whole-model integration, no energy measurement, and the chess-compiled 9 TOPS reference stays ahead of this Peano build. |
 
 The original XDNA1 runner recording and current XDNA2 acceptance recording show
 what the labels mean in practice:
@@ -212,7 +212,7 @@ an exact shape, compiler pin, and minimal reproducer advances the lab too.
 | Accessibility trigger | A trained sound, gesture, presence, or UI classifier that emits a standard Linux event | Project idea; reuse wake-word or camera plumbing and provide real training/evaluation data. |
 | Smart virtual camera | Supported conv stage on NPU, CPU compositing, `v4l2loopback` output | Plumbing exists; current demo is box blur, while model conv coverage needs per-shape verification. |
 | Private media indexer | Small CNN or projection stage produces tags/embeddings; CPU stores and searches them | Project idea; validate every model partition and retain CPU fallback. |
-| Quantized block laboratory | W8/W4 matmul plus dequantization, CPU golden, error and energy sweep | W4A16 is compile-only today. Hardware execution is an open milestone. |
+| Quantized block laboratory | W8/W4 matmul plus dequantization, CPU golden, error and energy sweep | W4A16 now runs hardware-verified at 5.94 TOPS ([`w4a16_gemm`](../examples/mlir-aie/w4a16_gemm/)); the energy sweep and other bit-widths are the open milestones. |
 | Cross-generation benchmark | Same source, device-specific build, full-output checks, latency/energy table | XDNA1 earlier evidence and current Strix evidence exist; same-pin XDNA1 and future-device rows are open. |
 | Compiler boundary atlas | Passing and failing shapes/ops reduced to scripts and reported upstream | Already useful: known bfp16 accumulation and conv boundaries are documented; more devices are welcome. |
 
@@ -305,8 +305,9 @@ first-class result.
 - The wake-word weights and ONNX MLP are synthetic templates. The camera path
   uses a box blur, not a segmentation network. They prove execution and
   integration surfaces, not production model quality.
-- W4A16 is compile-only. Current quantized-model work is not a verified NPU
-  runtime.
+- W4A16 is a verified kernel, not a model runtime: the quantized GEMM passes
+  its CPU reference on Strix Point at 5.94 TOPS, but no quantized *model*
+  runs end to end through it yet.
 - No arbitrary LLM, GGUF, PyTorch, or ONNX model runs end to end through this
   repository on XDNA1. Unsupported operations and CPU fallback must remain
   visible.

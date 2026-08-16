@@ -312,18 +312,23 @@ pas des benchmarks appartenant à ce dépôt.
    tester.** Le ticket llama.cpp #21725 lié ne fournit ni expérience primaire
    ni log brut à l'appui ; ce dépôt ne formule donc **aucune affirmation de
    decode 10×**.
-   **Statut du dépôt : compilation seule (2026-08-15)** : le kernel fusionné
-   dequant+GEMM de TileFuse (`mix_int4_ATB.cc`) **compile proprement avec
-   Peano pour `aie2p` contre les en-têtes mlir-aie 1.4.1**
-   (`-Dbf16_bf16_ONLY`, m64/k128/n64 → `matmul_bf16_bf16`). Cela franchit une
-   barrière de compilation front-end pour cette spécialisation, mais ne termine
-   **pas** le portage. Restent l'intégration IRON/ObjectFifo, l'édition de liens,
-   le placement, la concordance ABI, le packing des poids côté hôte, l'exécution
-   sur NPU et la vérification numérique. Le script épinglé
-   [`check-w4a16-compile.sh`](../scripts/check-w4a16-compile.sh) consigne le
-   commit source externe, les sommes de contrôle et les options front-end
-   exactes. Le dépôt ne possède aucun résultat W4A16 d'exécution matérielle,
-   de justesse, de débit ou d'énergie.
+   **Statut du dépôt — ✅ vérifié sur matériel (2026-08-16)** : le kernel
+   fusionné dequant+GEMM de TileFuse (`mix_int4_ATB.cc`, embarqué
+   octet-pour-octet depuis le commit épinglé du fork) **s'exécute désormais
+   sur cette machine Strix**, dans un design IRON 1.4.x whole-array propre au
+   dépôt, avec Peano seul —
+   [`examples/mlir-aie/w4a16_gemm`](../examples/mlir-aie/w4a16_gemm/) :
+   packing AWQ-g128 côté hôte (4352 o/tuile), déquantification in-core vers
+   un cache L1 weight-stationary de 16 Ko, **PASS** face à la référence CPU à
+   512³ et 2048³ (erreur max ≈ 9·10⁻³ de l'échelle d'accumulation),
+   **5,94 TOPS** à 2048³ sur 8 colonnes (+28 % par rapport à la baseline
+   bf16 de 4,64 TFLOPS du dépôt, ~66 % des 9 TOPS de TileFuse compilés avec
+   chess) et 6,24 TOPS à 2048×4096×4096. Le script épinglé
+   [`check-w4a16-compile.sh`](../scripts/check-w4a16-compile.sh) consigne
+   toujours le commit source externe, les sommes de contrôle et les options
+   front-end ; le README de l'exemple documente les trois nouveaux pièges
+   (M12–M14). L'énergie reste non mesurée et l'intégration llama.cpp reste
+   ouverte.
 
 *Statut : page ajoutée le 2026-08-15 ; l'activation, le calcul par noyaux directs et le
 portage IREE `npu4` avec correction face à la référence CPU ont été vérifiés

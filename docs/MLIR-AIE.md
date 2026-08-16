@@ -92,6 +92,7 @@ on-NPU figure (around `kernel.wait()`), excluding host launch overhead.
 | `ml/conv2d` (i8, 32×32, 64ch) | INT8 convolution | ✓ 490 µs (XDNA1: ~900 µs) |
 | `ml/mobilenet` | **full network** | ✓ **PASS, ~176 ms/inference** |
 | [`examples/mlir-aie/relu_add`](../examples/mlir-aie/relu_add/) | custom fused kernel | ✓ see below |
+| [`examples/mlir-aie/w4a16_gemm`](../examples/mlir-aie/w4a16_gemm/) | **W4A16 quantized GEMM** | ✓ **PASS, 5.94 TOPS** (see below) |
 
 `ml/mobilenet` is the design that **cannot run on XDNA1** — it wants more
 columns than Phoenix's 4 and dies in `CREATE_HWCTX`. On Strix's 8 columns the
@@ -143,6 +144,32 @@ partial sum; that is a hypothesis explaining the K dependence, not a proven
 fix. Do not report a native-bfp throughput unless the CPU-reference check also
 passes. This is separate from the **bf16 input/output, bfp16-internal** 2048³
 path in the table above: its **4.64 TFLOPS** result passed correctness.
+
+### W4A16 quantized GEMM (int4 AWQ-g128 weights, bf16 activations)
+
+The TileFuse fused dequant+GEMM kernel — compile-only status in the previous
+release — now **runs on the NPU with CPU-reference PASS**, ported to the IRON
+1.4.x whole-array dataflow with Peano only
+([`examples/mlir-aie/w4a16_gemm`](../examples/mlir-aie/w4a16_gemm/)). Weights
+stream as packed 4352-byte tiles (int4 data + bf16 scales + int8 zero-points,
+one AWQ group per k-tile) and are dequantized in-core into a 16 KB
+weight-stationary L1 cache — 3.76× less weight DRAM traffic than bf16 B:
+
+| Shape | Columns | NPU time | Throughput | CPU reference |
+|---|---|--:|--:|---|
+| 512³ | 8 | 158 µs | 1.70 TOPS | PASS |
+| 2048³ | 4 | 5.76 ms | 2.98 TOPS | PASS |
+| 2048³ | 8 | **2.89 ms** | **5.94 TOPS** | PASS |
+| 2048×4096×4096 | 8 | 11.0 ms | **6.24 TOPS** | PASS |
+
+That is **+28% over the 4.64 TFLOPS bf16-via-bfp16 baseline** above, at ~90%
+of the i8 record, with 4-bit weights. Column scaling 4→8 is 1.99× —
+compute-bound. TileFuse's paper reports 9 TOPS on Strix with the chess
+compiler; the gap is Peano kernel scheduling, not dataflow. The PASS
+criterion bounds elementwise error against the `|A|·|B|` accumulation scale
+(max ≈ 9·10⁻³ at 2048³); see the example README for why plain relative error
+is the wrong gate for signed inputs on the bfp16 datapath, and GOTCHAS
+M12–M14 for three traps this port surfaced.
 
 ### Custom kernel, whole-array scaling
 

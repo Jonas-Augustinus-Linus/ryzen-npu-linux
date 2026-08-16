@@ -295,15 +295,20 @@ CPU/GPU energy 수치는 그 XDNA1 port가 아니라 별개의 HX 370/**XDNA2** 
    있는 benchmark hypothesis로 남습니다.** 연결한 llama.cpp #21725에는 이를
    뒷받침하는 1차 실험이나 raw log가 없으므로, 이 저장소는 **10배 decode를 주장하지
    않습니다**.
-   **저장소 상태는 컴파일 전용(2026-08-15)**: TileFuse의 융합 dequant+GEMM
-   커널(`mix_int4_ATB.cc`)이 **mlir-aie 1.4.1 헤더에 대해 Peano `aie2p`
-   타깃으로 깔끔하게 컴파일된다**(`-Dbf16_bf16_ONLY`, m64/k128/n64 →
-   `matmul_bf16_bf16`). 이 특수화의 프런트엔드 컴파일 장벽 하나를 넘은
-   것이지, 포팅이 끝난 것은 **아니다**. IRON/ObjectFifo 통합, 링크, 배치,
-   ABI 일치, 호스트 측 가중치 패킹, NPU 실행, 수치 정합성 검증이 모두 남아 있다.
-   고정된 [`check-w4a16-compile.sh`](../scripts/check-w4a16-compile.sh)에 소스
-   외부 source commit, checksum, 정확한 front-end flag를 기록했습니다. 이 저장소에는
-   W4A16 실기 실행, 정확성, throughput, energy 결과가 없습니다.
+   **저장소 상태 — ✅ 실기 검증 완료(2026-08-16)**: TileFuse의 융합
+   dequant+GEMM 커널(`mix_int4_ATB.cc`, 고정된 fork commit에서 바이트 동일하게
+   vendoring)이 이제 **이 Strix 머신에서 실행됩니다** — 저장소 소유의 IRON
+   1.4.x whole-array 디자인, Peano 전용:
+   [`examples/mlir-aie/w4a16_gemm`](../examples/mlir-aie/w4a16_gemm/).
+   호스트 측 AWQ-g128 패킹(타일당 4352 B), 16 KB weight-stationary L1
+   캐시로의 in-core dequant, 512³·2048³에서 CPU 참조 **PASS**(최대 오차 ≈
+   누적 스케일의 9·10⁻³), 8 column에서 2048³ **5.94 TOPS**(저장소의 4.64
+   TFLOPS bf16 baseline 대비 +28%, TileFuse의 chess 컴파일 9 TOPS의 약
+   66%), 2048×4096×4096에서 6.24 TOPS. 고정된
+   [`check-w4a16-compile.sh`](../scripts/check-w4a16-compile.sh)는 여전히
+   외부 source commit, checksum, front-end flag를 기록하며, 예제 README가
+   새 gotcha 3건(M12–M14)을 문서화합니다. energy는 아직 측정하지 않았고,
+   llama.cpp 통합도 열려 있습니다.
 
 *상태: 2026-08-15에 페이지 추가; 같은 날 위의 Strix Point 머신에서 활성화,
 direct-kernel 연산, CPU 참조 정확도를 포함한 IREE `npu4` 이식을 검증했다.

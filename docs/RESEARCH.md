@@ -87,8 +87,10 @@ Can one fused block eliminate enough host round-trips to change system energy?
 - **Quantization is a dataflow problem, not only a file format.** TileFuse
   co-designs W4A16/W8A16 layout, unpacking, dequantization, and GEMM/GEMV for
   XDNA2, reporting kernel and end-to-end gains under the authors' setup.[^tilefuse]
-  This repository's W4A16 spike is only compile-only; the paper is a direction,
-  not borrowed evidence.
+  This repository now has its own hardware evidence on that direction: the
+  TileFuse kernel runs CPU-reference-verified at 5.94 TOPS in
+  [`examples/mlir-aie/w4a16_gemm`](../examples/mlir-aie/w4a16_gemm/); the
+  paper's 9 TOPS (chess) and end-to-end results remain the authors' own.
 - **Reproducible process can itself be open infrastructure.** A 2026 study
   records correctness-gated skills used to deploy multiple decoder-only LLMs on
   XDNA2 with the open compiler stack.[^agent-skills] Its exact models and XDNA2
